@@ -3,7 +3,7 @@
 > Self-contained JavaScript polyfills for older devices and WebViews (Chromium 38+, Safari 7.1+). A core-js alternative for supported APIs. Each polyfill is an "island" with no shared helper chain, designed to reduce temporary allocations and garbage-collection work.
 
 Key facts:
-- Package: `npm install @shim-works/spackle` (currently `0.1.0-alpha.9`, MIT licensed). Alpha software: check coverage in the README before adopting. Import it first: `import '@shim-works/spackle';`
+- Package: `npm install @shim-works/spackle` (currently `0.1.0-alpha.10`, MIT licensed). Alpha software: check coverage in the README before adopting. Import it first: `import '@shim-works/spackle';`
 - Coverage matches `core-js/stable`: ES2015 to ES2025 built-ins, URL, URLSearchParams, structuredClone, DOM iteration helpers. It does not polyfill unfinished proposals.
 - Each polyfill installs only if a feature probe says the engine lacks it; native built-ins are kept.
 - Turn off Babel's automatic core-js injection (`useBuiltIns: false`) so the two libraries don't both load.
