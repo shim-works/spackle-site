@@ -1,0 +1,266 @@
+---
+/*
+ * Home. One idea per screen, top to bottom: what it is, why it's faster
+ * (the animation), what it does for you, how to install it, how we know.
+ * Every number links to the part of /paper it came from.
+ */
+import Tv from '../layouts/Tv.astro';
+import { readFileSync } from 'node:fs';
+import { Code } from 'astro:components';
+
+// Lockup: wordmark set live in Roundo, Spencer inlined
+// beside it. The blink is SMIL baked into spencer.svg.
+const spencer = readFileSync('public/assets/spencer.svg', 'utf8')
+  .replace('width="100%" height="100%"', 'class="spencer"');
+
+// Highlighted at build time: plain spans with inline colours, no script on the page.
+// Shiki makes each block focusable; the remote shouldn't stop on code, so drop it.
+// Its theme also uses #rrggbbaa colours, which Chrome < 62 ignores: write them as rgba().
+const rgba = (h: string) => 'rgba(' + [0, 2, 4].map((i) => parseInt(h.substr(i, 2), 16)).join(',') + ',' +
+  (parseInt(h.substr(6, 2), 16) / 255).toFixed(2) + ')';
+const noTab = [{
+  pre(node: any) { delete node.properties.tabindex; },
+  postprocess(html: string) { return html.replace(/#([0-9a-fA-F]{8})\b/g, (_m: string, h: string) => rgba(h)); },
+}];
+// The animation's scene 1 first frame (public/visual: apiPos, pill width, layer-1
+// spacing), for the poster. entry: core-js's one entry module under each API.
+const APIS = ['Object.assign', 'Array.from', 'Map', 'URLSearchParams'].map((label, k) =>
+  ({ label, x: 110 + k * 220, w: Math.max(60, label.length * 9.2 + 16), entry: 132.5 + k * 205 }));
+const babel = `// babel.config.js
+['@babel/preset-env', {
+  targets: { chrome: '38', safari: '7.1' },
+  useBuiltIns: false,
+}]`;
+---
+
+<Tv title="Spackle — polyfills for older hardware" bare>
+  <script type="application/ld+json" slot="head" is:inline set:html={JSON.stringify({
+    '@context': 'https://schema.org',
+    '@type': 'SoftwareSourceCode',
+    name: 'Spackle',
+    description: 'Self-contained JavaScript polyfills for older devices and WebViews. A core-js alternative measured on older Chromium engines and on a 2017 LG TV.',
+    url: 'https://spackle.samseabourn.com/',
+    codeRepository: 'https://github.com/shim-works/spackle',
+    programmingLanguage: 'JavaScript',
+    runtimePlatform: 'Chromium 38+, Safari 7.1+',
+    license: 'https://opensource.org/licenses/MIT',
+    image: 'https://spackle.samseabourn.com/assets/og.png',
+  })} />
+  <style is:inline>
+    .hero { text-align: center; }
+    /* Inline layout, not flex: the knife's bottom edge sits on the word's baseline for free. */
+    .lockup { white-space: nowrap; }
+    .wordmark { font-family: "Roundo", "Helvetica Neue", Helvetica, Arial, sans-serif; font-size: 4.75rem; line-height: 1; color: #2a2927; letter-spacing: -0.035em; }
+    .spencer { width: 13rem; height: auto; margin-left: 0.6rem; }
+    @media (max-width: 640px) { .wordmark { font-size: 2.9rem; } .spencer { width: 8rem; } }
+    .hero .tag { font-family: "Roundo", "Helvetica Neue", Helvetica, Arial, sans-serif; font-size: 1.6rem; margin: 0.6rem 0 0.4rem; }
+    .hero .sub { color: #66635b; font-size: 1.1rem; max-width: 34rem; margin: 0 auto 2rem; }
+
+    /*
+     * One section = one screen. Content centred in it, top to bottom; tv.js
+     * moves the remote a whole .screen at a time. Flex column centring with
+     * min-height works on Chrome 38 (the min-height bug is IE's).
+     */
+    .screen {
+      min-height: 100vh;
+      -webkit-box-sizing: border-box; box-sizing: border-box;
+      padding: 2rem 0;
+      display: -webkit-box; display: -webkit-flex; display: flex;
+      -webkit-box-orient: vertical; -webkit-flex-direction: column; flex-direction: column;
+      -webkit-box-pack: center; -webkit-justify-content: center; justify-content: center;
+    }
+    section h2 { text-align: center; }
+    section .lead { text-align: center; color: #66635b; max-width: 36rem; margin: 0 auto 1.6rem; }
+
+    /* 16:9 box for the animation, padding-bottom trick (no aspect-ratio on Chrome 38) */
+    /* Capped by height too, so heading + animation + button fit one screen. */
+    .stage-wrap { max-width: -webkit-calc((100vh - 18rem) * 16 / 9); max-width: calc((100vh - 18rem) * 16 / 9); margin: 0 auto; width: 100%; }
+    .stage { position: relative; height: 0; padding-bottom: 56.25%; background: #e4e3de; border: 2px solid #cfccc5; }
+    .stage iframe { position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: 0; pointer-events: none; }
+    .center { text-align: center; margin-top: 1.2rem; }
+    /* Before Watch: the animation's first frame, drawn here (same coordinates as
+       public/visual scene 1 at t=0) so the heavy frame only loads on demand. */
+    .poster { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+    .poster svg { display: block; width: 100%; height: 100%; }
+    .poster text { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+
+    /* The stats, in the style of the animation's old closing scene: logos head
+       to head, then big green monospace numbers, no boxes. */
+    #wins { text-align: center; }
+    .versus { margin: 0.4rem 0 0.6rem; }
+    .versus img { vertical-align: middle; width: auto; }
+    .versus .vs-spackle { height: 2.8rem; }
+    .versus .vs-core { height: 2.2rem; }
+    .versus span { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 1.4rem; color: #66635b; margin: 0 1.2rem; vertical-align: middle; }
+    #wins .mono { font-size: 1.2rem; margin-bottom: 2.4rem; }
+    .wins { display: -webkit-box; display: -webkit-flex; display: flex; -webkit-flex-wrap: wrap; flex-wrap: wrap; max-width: 50rem; margin: 0 auto 1.6rem; }
+    .win {
+      display: block; -webkit-box-flex: 1; -webkit-flex: 1 1 11rem; flex: 1 1 11rem;
+      margin: 0 0.7rem 1.4rem; padding: 1rem 0.6rem;
+      color: #2a2927; text-decoration: none;
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    .win:visited { color: #2a2927; }
+    .win .big { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 4rem; font-weight: 800; line-height: 1; color: #4a8a47; margin: 0; white-space: nowrap; }
+    .win .what { font-size: 1.05rem; margin: 0.6rem 0 0.5rem; }
+    /* Focus: a coral border round the stat; its colours stay put. */
+    .win { border: 4px solid transparent; border-radius: 14px; }
+    .win:focus, .mouse .win:hover { outline: none; font-weight: 400; color: #2a2927; border-color: #f2765e; }
+
+    .step { display: -webkit-box; display: -webkit-flex; display: flex; margin-bottom: 1.2rem; }
+    .step .n {
+      -webkit-flex: none; flex: none; width: 2.4rem; height: 2.4rem; line-height: 2.4rem; text-align: center;
+      margin-right: 1rem; background: #efeeea; border: 2px solid #2a2927; box-shadow: 4px 4px 0 #2a2927;
+      font-family: "Roundo", "Helvetica Neue", Helvetica, Arial, sans-serif; font-size: 1.2rem;
+    }
+    .step .body { -webkit-box-flex: 1; -webkit-flex: 1; flex: 1; min-width: 0; }
+    .step .body p { margin-bottom: 0.5rem; }
+    /* The step is the remote's stop; its number lights up like a focused button. */
+    .step:focus { outline: none; }
+    .step:focus .n, .mouse .step:hover .n { background: #f2765e; }
+
+    .proof { text-align: center; }
+    .proof .chips { margin: 0 auto 1.4rem; max-width: 40rem; color: #66635b; font-size: 0.95rem; }
+  </style>
+
+  <div class="hero screen">
+    <div class="lockup"><span class="wordmark">Spackle</span><Fragment set:html={spencer} /></div>
+    <div class="tag">Polyfills for older hardware.</div>
+    <p class="sub">Dusty hardware deserves nice things too. Spackle adds newer JavaScript features to older devices and WebViews, with less work for their CPUs and garbage collectors.</p>
+    <div>
+      <a class="btn" href="/verify" data-autofocus>Test this device</a>
+      <a class="btn quiet" href="/device">Compare</a>
+      <a class="btn quiet" href="#install">Quick start</a>
+      <a class="btn quiet" href="/paper">Read the paper</a>
+    </div>
+  </div>
+
+  <section id="why" class="screen">
+    <h2>Less mess, less waiting</h2>
+    <p class="lead">A polyfill adds a JavaScript feature an older browser is missing. Many polyfill libraries route calls through shared helpers, which can be slow. Spackle keeps each polyfill self-contained to reduce work and temporary allocations on older engines.</p>
+    <div class="stage-wrap"><div class="stage">
+      <div class="poster" id="poster">
+        <svg viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid meet">
+          <text x="960" y="76" font-size="40" font-weight="700" fill="#2a2927" text-anchor="middle">How deep each call goes</text>
+          <line x1="960" y1="151" x2="960" y2="1040" stroke="#cfccc5" stroke-width="2" />
+          <g transform="translate(40,36)">
+            <image xlink:href="/visual/assets/core-js-logo.png" x="321.55" y="92" width="236.9" height="56" />
+            {APIS.map((a) => (
+              <line x1={a.x} y1="200" x2={a.entry} y2="260" stroke="#b9b6ae" stroke-width="1" stroke-opacity="0.35" />
+            ))}
+            {APIS.map((a) => (
+              <g>
+                <rect x={a.x - a.w / 2} y="186" width={a.w} height="28" rx="14" fill="#efeeea" stroke="#d5762c" />
+                <text x={a.x} y="205" font-size="15" text-anchor="middle" fill="#2a2927">{a.label}</text>
+                <circle cx={a.entry} cy="260" r="4.5" fill="#9e9b93" />
+              </g>
+            ))}
+            <text x="440" y="1000" font-size="22" fill="#2a2927" text-anchor="middle">nested helper functions 0</text>
+          </g>
+          <g transform="translate(1000,36)">
+            <image xlink:href="/visual/assets/spackle-logo.svg" x="354.05" y="89.2" width="171.9" height="61.6" />
+            {APIS.map((a) => (
+              <g>
+                <rect x={a.x - a.w / 2} y="186" width={a.w} height="28" rx="14" fill="#efeeea" stroke="#5a9a57" stroke-width="2" />
+                <text x={a.x} y="205" font-size="15" text-anchor="middle" fill="#2a2927">{a.label}</text>
+                <line x1={a.x} y1="214" x2={a.x} y2="232" stroke="#b9b6ae" />
+                <circle cx={a.x} cy="260" r="28" fill="#9e9b93" />
+              </g>
+            ))}
+            <text x="440" y="1000" font-size="22" fill="#2a2927" text-anchor="middle">nested helper functions 0</text>
+          </g>
+        </svg>
+      </div>
+      <iframe id="visual" title="Islands vs helpers animation" tabindex="-1"></iframe>
+    </div></div>
+    <div class="center"><button id="play">Watch it</button></div>
+  </section>
+
+  <section id="wins" class="screen">
+    <div class="versus">
+      <img src="/assets/spackle-logo.svg" alt="spackle" class="vs-spackle" />
+      <span>vs</span>
+      <img src="/visual/assets/core-js-logo.png" alt="core-js" class="vs-core" />
+    </div>
+    <p class="mono">on 2015-era Chromium, up to</p>
+    <div class="wins">
+      <a class="win" href="/paper#results">
+        <div class="big">~7×</div>
+        <div class="what">fewer minor garbage collections</div>
+      </a>
+      <a class="win" href="/paper#results">
+        <div class="big">~7×</div>
+        <div class="what">less garbage during the workload</div>
+      </a>
+      <a class="win" href="/paper#results">
+        <div class="big">~6×</div>
+        <div class="what">less time paused for garbage collection</div>
+      </a>
+    </div>
+    <p class="lead">Front-end stress test on Chromium 41, 64 MB heap, one CPU core. <a href="/paper#method">How we measured</a></p>
+  </section>
+
+  <section id="install" class="screen">
+    <h2>Install</h2>
+    <p class="lead">A core-js alternative for the APIs Spackle supports. Current release: <code>0.1.0-alpha.9</code>. Still alpha, so <a href="https://github.com/shim-works/spackle#readme">check what's covered</a> first.</p>
+    <div class="step" tabindex="0"><div class="n">1</div><div class="body">
+      <p>Install it</p>
+      <Code code="npm install @shim-works/spackle" lang="sh" theme="vitesse-dark" transformers={noTab} />
+    </div></div>
+    <div class="step" tabindex="0"><div class="n">2</div><div class="body">
+      <p>Import Spackle before anything else, at your app's entry point</p>
+      <Code code={"import '@shim-works/spackle';\nimport App from './App';"} lang="js" theme="vitesse-dark" transformers={noTab} />
+    </div></div>
+    <div class="step" tabindex="0"><div class="n">3</div><div class="body">
+      <p>Tell your bundler to stop adding core-js</p>
+      <Code code={babel} lang="js" theme="vitesse-dark" transformers={noTab} />
+      <p class="dim">Using SWC or Vite? <a href="https://github.com/shim-works/spackle#readme">The README has those.</a></p>
+    </div></div>
+  </section>
+
+  <section id="proof" class="proof screen">
+    <h2>How this was tested</h2>
+    <p class="lead">24 Chromium WebViews from 41–150, Safari 7.1–10, and a real app on a 2017 LG TV. The numbers and raw data are all in the paper.</p>
+    <p class="chips">1,357 JS compliance tests run in the actual WebViews · methods and raw results in the paper</p>
+    <div>
+      <a class="btn" href="/verify">Test this device</a>
+      <a class="btn quiet" href="/device">Compare</a>
+      <a class="btn quiet" href="/paper#method">How we know</a>
+    </div>
+  </section>
+
+  <script is:inline slot="end">
+    // Reduced motion: the blink is SMIL, so CSS can't stop it. Old engines lack matchMedia and the preference both.
+    try {
+      if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        var sp = document.getElementsByClassName('spencer')[0];
+        if (sp && sp.pauseAnimations) sp.pauseAnimations();
+      }
+    } catch (e) {}
+    (function () {
+      // The animation plays on demand, not on scroll: it's the heaviest thing
+      // here, so it never lands mid-glide. The button stays greyed out until
+      // the last scene posts 'done' (public/visual/index.html).
+      var frame = document.getElementById('visual');
+      var poster = document.getElementById('poster');
+      var play = document.getElementById('play');
+      var guard = null;
+      function ready() {
+        if (guard) { window.clearTimeout(guard); guard = null; }
+        play.disabled = false;
+        play.innerHTML = 'Watch it again';
+      }
+      play.onclick = function () {
+        play.disabled = true;
+        play.innerHTML = 'Playing\u2026';
+        poster.style.display = 'none';
+        frame.src = '/visual/index.html?clean&t=' + (+new Date());
+        // If the frame dies on a small TV and never reports, don't leave the button dead.
+        guard = window.setTimeout(ready, 300000);
+      };
+      window.addEventListener('message', function (e) {
+        if (e.data && e.data.tag === 'spackle-visual' && e.data.done) ready();
+      }, false);
+    })();
+  </script>
+</Tv>

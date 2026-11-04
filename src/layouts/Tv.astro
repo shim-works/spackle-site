@@ -1,0 +1,253 @@
+---
+/*
+ * One shell for every page.
+ *
+ * Floor: markup and CSS only, every script
+ * <script is:inline src>, because Astro's bundler emits type="module" and
+ * Chrome 38 cannot run it. No custom properties (Chrome 49), no grid
+ * (Chrome 57), no flex gap (Chrome 84), no position:sticky (Chrome 56).
+ *
+ * Look: a light Seagull ground and ink, coral pressed buttons. Sized in rem off one root size that steps up on a
+ * 1080p TV, so a 720p and a 1080p screen get the same layout.
+ */
+interface Props {
+  title: string;
+  /** Hide the top bar on the home page: the hero is the masthead there. */
+  bare?: boolean;
+  /** Search and link-preview text. */
+  description?: string;
+}
+const {
+  title,
+  bare,
+  description = 'Spackle is a core-js alternative for older devices and WebViews. Its self-contained polyfills were measured across 24 Chromium versions and on a 2017 LG TV.',
+} = Astro.props;
+const canonical = new URL(Astro.url.pathname, Astro.site).href;
+const image = new URL('/assets/og.png', Astro.site).href;
+const here = Astro.url.pathname.replace(/\/$/, '') || '/';
+const nav = [
+  ['/verify', 'Test this device'],
+  ['/device', 'Compare'],
+  ['/#install', 'Quick start'],
+  ['/paper', 'Read the paper'],
+];
+---
+
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>{title}</title>
+  <meta name="description" content={description} />
+  <link rel="canonical" href={canonical} />
+  <link rel="icon" href="/assets/spencer.svg" />
+  <link rel="alternate" type="text/plain" href="/llms.txt" title="LLM summary" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Spackle" />
+  <meta property="og:title" content={title} />
+  <meta property="og:description" content={description} />
+  <meta property="og:url" content={canonical} />
+  <meta property="og:image" content={image} />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="theme-color" content="#e4e3de" />
+  <style is:inline>
+    @font-face {
+      font-family: "Roundo";
+      src: url("/assets/Roundo-Medium.woff") format("woff");
+      font-weight: 400;
+      font-style: normal;
+    }
+
+    html { font-size: 16px; background: #e4e3de; }
+    @media (min-width: 1600px) and (min-height: 900px) { html { font-size: 24px; } }
+
+    body {
+      margin: 0;
+      padding: 0 1.5rem 4rem;
+      background: #e4e3de;
+      color: #2a2927;
+      font: 1rem/1.55 "Helvetica Neue", Helvetica, Arial, sans-serif;
+      -webkit-text-size-adjust: 100%;
+    }
+
+    .shell { max-width: 56rem; margin: 0 auto; }
+
+    h1, h2, h3, .roundo, button, .btn {
+      font-family: "Roundo", "Helvetica Neue", Helvetica, Arial, sans-serif;
+      font-weight: 400;
+    }
+    h1 { font-size: 2.6rem; line-height: 1.1; margin: 0 0 0.6rem; }
+    h2 { font-size: 1.7rem; line-height: 1.2; margin: 0 0 0.8rem; }
+    h3 { font-size: 1.2rem; margin: 1.6rem 0 0.5rem; }
+    p { margin: 0 0 1rem; }
+    p, li { word-wrap: break-word; }
+    /* Links coral, faded once visited. */
+    a { color: #ad3f28; }
+    a:visited { color: #8f4a3a; }
+    .dim { color: #66635b; }
+    .mono, code, pre {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+
+    /* ---- top bar ---------------------------------------------------- */
+    .bar {
+      display: -webkit-box; display: -webkit-flex; display: flex;
+      -webkit-align-items: center; align-items: center;
+      padding: 1.2rem 0;
+      margin-bottom: 2rem;
+      border-bottom: 2px solid #cfccc5;
+    }
+    .bar .brand { margin-right: auto; line-height: 0; }
+    .bar .brand img { height: 2rem; width: auto; }
+    /* Nav links are the pressed buttons, smaller. Coral is focus, so the current
+       page shows pushed in instead (the :active look, held). */
+    .bar .btn.nav { font-size: 1rem; padding: 0.5rem 1rem; margin: 0 0 0 0.9rem; }
+    .bar .btn.nav.on {
+      background: #e4e3de; color: #66635b; border-color: #9e9b93; box-shadow: 1px 1px 0 #9e9b93;
+      -webkit-transform: translate(3px, 3px); transform: translate(3px, 3px);
+    }
+    .bar .btn.nav.on:focus { background: #f2765e; color: #2a2927; }
+
+    /* ---- buttons: pressed flat against the wall ----- */
+    /*
+     * Cream at rest, coral when the remote (or mouse) is on it. The coral IS
+     * the focus state, so there's no outline on top of it.
+     */
+    button, .btn {
+      display: inline-block;
+      font-size: 1.1rem;
+      color: #2a2927;
+      background: #efeeea;
+      border: 2px solid #2a2927;
+      box-shadow: 4px 4px 0 #2a2927;
+      padding: 0.7rem 1.6rem;
+      margin: 0 1rem 1rem 0;
+      /* <a class="btn"> and <button> must match: buttons default to a tighter
+         line-height than the 1.55 links inherit, so pin both. */
+      line-height: 1.2;
+      vertical-align: top;
+      -webkit-box-sizing: border-box; box-sizing: border-box;
+      cursor: pointer;
+      text-decoration: none;
+    }
+    button:focus, .btn:focus { background: #f2765e; outline: none; }
+    /* Hover only while the mouse is in use (tv.js sets .mouse): a pointer parked
+       on a button must not light it up while the remote is driving. */
+    .mouse button:hover, .mouse .btn:hover { background: #f2765e; }
+    button:active, .btn:active { box-shadow: 1px 1px 0 #2a2927; -webkit-transform: translate(3px, 3px); transform: translate(3px, 3px); }
+    button[disabled] { background: #d6d4ce; box-shadow: 1px 1px 0 #2a2927; cursor: default; -webkit-transform: translate(3px, 3px); transform: translate(3px, 3px); }
+
+    /* Text links: focus turns them bold coral, no ring. #ad3f28 is the coral
+       darkened enough to read as text. */
+    a:focus, a:visited:focus { outline: none; color: #ad3f28; font-weight: 700; }
+    /* Link-shaped buttons and cards keep their own look. */
+    a.btn:focus, a.btn:visited { color: #2a2927; font-weight: 400; }
+    [tabindex]:focus { outline: 4px solid #f2765e; outline-offset: 4px; }
+
+    /* ---- cards ------------------------------------------------------ */
+    .card {
+      background: #efeeea;
+      border: 2px solid #cfccc5;
+      padding: 1.4rem 1.6rem;
+      margin: 0 0 1.4rem;
+    }
+    pre {
+      background: #2a2927; color: #efeeea;
+      font-size: 0.9rem; line-height: 1.5;
+      padding: 0.9rem 1.1rem; margin: 0 0 1rem;
+      overflow-x: auto; white-space: pre-wrap;
+    }
+    code { font-size: 0.9em; background: #d6d4ce; padding: 0.05em 0.3em; }
+    pre code { background: none; padding: 0; }
+    /* Shiki blocks keep the site's dark ground, its colours on top */
+    pre.astro-code { background-color: #2a2927 !important; }
+
+    /* ---- raw test output (the demo scripts' class names) ------------ */
+    .score { font-family: "Roundo", "Helvetica Neue", Helvetica, Arial, sans-serif; font-size: 1.3rem; line-height: 1.25; margin: 0.4rem 0; }
+    .score b { font-weight: 400; font-size: 1.6rem; }
+    .note { color: #66635b; font-size: 0.9rem; margin: 0.3rem 0; }
+    .ok { color: #4a8a47; }
+    .bad { color: #c4473c; }
+    .panel { background: #efeeea; border: 2px solid #cfccc5; padding: 0.8rem 1rem; margin-top: 1rem; font-size: 0.9rem; color: #66635b; }
+    .panel b { color: #2a2927; }
+    table { border-collapse: collapse; width: 100%; font-size: 0.9rem; margin: 0.6rem 0; }
+    th { text-align: left; border-bottom: 2px solid #2a2927; padding: 0 0.6rem 0.3rem 0; }
+    td { padding: 0.25rem 0.6rem 0.25rem 0; vertical-align: top; border-bottom: 1px solid #cfccc5; }
+    td.batch { font-family: "Roundo", "Helvetica Neue", Helvetica, Arial, sans-serif; font-size: 0.95rem; padding-top: 0.8rem; border-bottom: 2px solid #2a2927; }
+    tr.fail td { color: #c4473c; }
+    tr.skip td, tr.unsup td { color: #66635b; }
+    td.result { width: 5rem; }
+    .native { color: #66635b; }
+    .spackle { color: #3b6fd4; }
+    .absent { color: #c4473c; }
+    .err { color: #66635b; }
+    /* /device/react: the frame React renders into, one window tall like the benchmark's browser. Visible on purpose: offscreen frames get throttled. */
+    .live-frame { display: block; width: 100%; height: 100vh; border: 2px solid #cfccc5; background: #efeeea; margin: 0 0 1.4rem; -webkit-box-sizing: border-box; box-sizing: border-box; }
+    .app-frame { max-height: 12rem; overflow: hidden; border: 2px solid #cfccc5; background: #efeeea; margin-top: 1rem; padding: 0 0.8rem; }
+
+    /* /verify: the coverage score. */
+    .big { font-family: "Roundo", "Helvetica Neue", Helvetica, Arial, sans-serif; font-size: 5rem; line-height: 1; color: #ad3f28; margin: 0 0 0.4rem; }
+    .big.ok { color: #4a8a47; }
+    .big.bad { color: #c4473c; }
+    .big .ok { color: #4a8a47; }
+    .big .bad { color: #c4473c; }
+    .big .big-lib { font-size: 1.1rem; color: #66635b; margin: 0 2rem 0 0.6rem; }
+    .big .big-other { color: #66635b; }
+    .big .big-label { display: block; font-size: 1.1rem; color: #66635b; }
+
+    /* /device/workload: two bars, shorter is faster. */
+    .bar-row { margin: 0 0 0.8rem; white-space: nowrap; }
+    .bar-name { display: inline-block; width: 6rem; font-family: "Roundo", "Helvetica Neue", Helvetica, Arial, sans-serif; }
+    .bar-fill { display: inline-block; height: 1.4rem; vertical-align: middle; margin-right: 0.6rem; }
+    .bar-spackle { background: #f2765e; }
+    .bar-other { background: #66635b; }
+    .bar-ms { color: #66635b; }
+
+    /* /tv progress: one line of small steps with arrows between. Done steps go
+       dark, the running one stays grey. */
+    .checklist { list-style: none; padding: 0; margin: 0.4rem 0 1.4rem; font-size: 0.9rem; line-height: 1.8; }
+    .checklist li { display: inline; color: #66635b; white-space: nowrap; }
+    .checklist li + li:before { content: '\2192'; margin: 0 0.6rem; color: #b9b6ae; }
+    .checklist li.done { color: #2a2927; }
+    .checklist .tick { display: none; }
+
+    footer { margin-top: 3rem; padding-top: 1rem; border-top: 2px solid #cfccc5; font-size: 0.9rem; color: #66635b; }
+    footer a { margin-right: 1.2rem; }
+
+    @media (max-width: 640px) {
+      body { padding: 0 1rem 3rem; }
+      h1 { font-size: 2rem; }
+      .bar { -webkit-flex-wrap: wrap; flex-wrap: wrap; }
+      .bar .brand { width: 100%; margin: 0 0 0.8rem; }
+      .bar .btn.nav { margin: 0 0.6rem 0.6rem 0; }
+      table { display: block; overflow-x: auto; }
+    }
+  </style>
+  <slot name="head" />
+</head>
+<body>
+  <div class="shell">
+    {!bare && (
+      <div class="bar">
+        <a class="brand" href="/" tabindex="-1"><img src="/assets/spackle-logo.svg" alt="spackle home" /></a>
+        {nav.map(([href, label]) => (
+          <a class={'btn nav' + (here === href || (href !== '/' && here.indexOf(href) === 0) ? ' on' : '')} href={href}>{label}</a>
+        ))}
+      </div>
+    )}
+
+    <slot />
+
+    <footer>
+      <a href="https://github.com/shim-works/spackle">GitHub</a>
+      <a href="https://www.npmjs.com/package/@shim-works/spackle">npm</a>
+      <a href="/paper">The paper</a>
+      <span>MIT · made for the box that's been plugged in since 2017</span>
+    </footer>
+  </div>
+  <script is:inline src="/tv.js"></script>
+  <slot name="end" />
+</body>
+</html>

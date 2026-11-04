@@ -1,0 +1,28 @@
+---
+/* /device: what's about to happen, then go. */
+import Tv from '../../layouts/Tv.astro';
+import { TESTS } from '../../tests';
+---
+
+<Tv title="Compare — Spackle" description="Race Spackle against core-js on the device you're holding: a simulated front-end workload, every polyfill timed one by one, and a real React app.">
+  <h1>Polyfill performance comparison</h1>
+  <p>A three-part test suite comparing the general performance of Spackle and core-js. Each library is installed and run in its own sandbox.</p>
+
+  <div style="margin-bottom: 1.4rem">
+    {TESTS.map((t, i) => (
+      <p style="margin: 0 0 0.25rem"><span class="mono dim">{i + 1}.</span> <b>{t.name}</b></p>
+    ))}
+  </div>
+
+  <a class="btn" href={'/device/' + TESTS[0].slug} data-autofocus>Start the first test</a>
+
+  <script is:inline slot="end">
+    // Fresh run, fresh recap.
+    try {
+      for (var k = window.sessionStorage.length - 1; k >= 0; k--) {
+        var key = window.sessionStorage.key(k);
+        if (key && key.indexOf('tv:') === 0) window.sessionStorage.removeItem(key);
+      }
+    } catch (e) { /* storage blocked */ }
+  </script>
+</Tv>

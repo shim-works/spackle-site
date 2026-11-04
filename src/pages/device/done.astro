@@ -1,0 +1,74 @@
+---
+/* /device/done: one tile per test from this run (sessionStorage, written by tv-steps.js). */
+import Tv from '../../layouts/Tv.astro';
+import { TESTS } from '../../tests';
+---
+
+<Tv title="Results — Spackle">
+  <h1 id="verdict">No tests ran yet!</h1>
+  <p class="dim">Spackle vs core-js, in this browser.</p>
+
+  <div class="tiles">
+    {TESTS.map((t) => (
+      <a class="tile" href={'/device/' + t.slug} data-slug={t.slug}>
+        <span class="tile-stat">–</span>
+        <span class="tile-sub">not run</span>
+        <span class="tile-name">{t.name}</span>
+      </a>
+    ))}
+  </div>
+
+  <a class="btn" id="again" href={'/device/' + TESTS[0].slug} data-autofocus>Start the first test</a>
+  <a class="btn" href="/#install">Install Spackle</a>
+  <a class="btn" href="/paper">Numbers from other devices</a>
+
+  <style is:inline slot="head">
+    .tiles { margin: 0.6rem 0 1.6rem; }
+    .tile {
+      display: inline-block; vertical-align: top;
+      width: 47%; margin: 0 2% 1rem 0;
+      -webkit-box-sizing: border-box; box-sizing: border-box;
+      padding: 1.2rem 1.4rem;
+      background: #efeeea; border: 2px solid #cfccc5;
+      color: #2a2927; text-decoration: none;
+    }
+    .tile:visited { color: #2a2927; }
+    .tile:focus { outline: none; border-color: #f2765e; color: #2a2927; font-weight: 400; }
+    .tile span { display: block; }
+    .tile-stat { font-family: "Roundo", "Helvetica Neue", Helvetica, Arial, sans-serif; font-size: 3.4rem; line-height: 1.1; color: #66635b; }
+    .tile.win .tile-stat { color: #ad3f28; }
+    .tile.level .tile-stat { color: #2a2927; }
+    .tile-sub { font-size: 1.1rem; margin-bottom: 0.4rem; }
+    .tile-name { color: #66635b; font-size: 0.9rem; }
+  </style>
+
+  <script is:inline slot="end">
+    (function () {
+      var tiles = document.querySelectorAll('.tile'), n = { win: 0, level: 0, loss: 0 }, ran = 0;
+      for (var i = 0; i < tiles.length; i++) {
+        var got = null;
+        try { got = JSON.parse(window.sessionStorage.getItem('tv:recap:' + tiles[i].getAttribute('data-slug'))); } catch (e) {}
+        if (!got || !got.stat) continue;
+        ran++;
+        // too close to call is level: nobody loses
+        var res = got.result || 'level';
+        n[res] = (n[res] || 0) + 1;
+        tiles[i].className += ' ' + res;
+        tiles[i].children[0].appendChild(document.createTextNode(''));
+        tiles[i].children[0].firstChild.nodeValue = got.stat;
+        tiles[i].children[1].firstChild.nodeValue = got.sub;
+      }
+      // only what happened: "Spackle faster in 2, level in 2"
+      var bits = [];
+      if (n.win) bits.push('Spackle ahead in ' + n.win);
+      if (n.level) bits.push('level in ' + n.level);
+      if (n.loss) bits.push('core-js ahead in ' + n.loss);
+      if (ran) {
+        document.getElementById('verdict').firstChild.nodeValue = bits.join(', ');
+        var again = document.getElementById('again');
+        again.firstChild.nodeValue = 'Run it again';
+        again.href = '/device';
+      }
+    })();
+  </script>
+</Tv>

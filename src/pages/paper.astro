@@ -1,0 +1,147 @@
+---
+/*
+ * The paper. Short and formal: the approach, how it was measured, the
+ * numbers, compliance, the data.
+ *
+ * The results tables are the README's (spackle/README.md), kept in step by
+ * hand. Every number links to a file in public/data/.
+ */
+import Tv from '../layouts/Tv.astro';
+
+const chromium = [
+  ['Polyfill time', '6.1× less', '5.6× less', '3.5× less', '2.5× less', '1.6× less', '≈'],
+  ['Garbage', '6.6× less', '6.0× less', '3.6× less', '1.6× less', '1.4× less', '≈'],
+  ['Minor GCs', '7.4× fewer', '7.2× fewer', '3.7× fewer', '1.7× fewer', '1.5× fewer', '≈'],
+  ['GC pause time', '6.2× less', '2.7× less', '1.5× less', '1.5× less', '1.2× less', '≈'],
+];
+
+const hot = [
+  ['Object.assign', '9.3×', '≈', '≈', '≈'],
+  ['Object.keys', '≈', '≈', '≈', '≈'],
+  ['Array.from', '18.6×', '3.3×', '≈', '≈'],
+  ['Array#includes', '10.9×', '≈', '≈', '≈'],
+  ['Array#find', '1.4×', '≈', '≈', '≈'],
+  ['String#padStart', '7.3×', '3.0×', '≈', '≈'],
+  ['Map get/has', '2.8×', '≈', '≈', '≈'],
+  ['Set#has', '≈', '≈', '≈', '≈'],
+  ['Promise chain', '≈', '≈', '≈', '≈'],
+  ['new URL', '29.4×', '7.6×', '4.5×', '≈'],
+  ['URLSearchParams', '9.9×', '8.3×', '2.5×', '≈'],
+];
+
+const solid = [
+  ['Initial render', '4.53 s', '1.03 s', '4.4× faster'],
+  ['Visually complete', '5.64 s', '2.07 s', '2.7× faster'],
+  ['Frame rate', '34.8 fps', '47.1 fps', '36% higher'],
+  ['Longest frame', '3.32 s', '0.13 s', '~25× shorter'],
+];
+
+const data = [
+  ['webview-summary.csv', 'WebView runs, Chromium 41 to 150: one row per test, library and version'],
+  ['webview-results.json', 'The same runs in full: timings, GC counts and heap per run'],
+  ['LG-2017-500pass-compare-core-js-first.json', 'LG 2017 TV, stress test, 500 passes, performance trace'],
+  ['solid-js-default-bench.txt', 'SolidTV demo app, default build, 5 runs'],
+  ['solid-js-default-bench-spackle.txt', 'SolidTV demo app, with Spackle, 5 runs'],
+];
+---
+
+<Tv title="Spackle: a white paper" description="How Spackle's self-contained polyfills compare with core-js across 24 Chromium WebViews (41 to 150), plus a real-device example on a 2017 LG TV: method, results, checks and raw data.">
+  <style is:inline>
+    .paper h2 { margin-top: 2.6rem; padding-bottom: 0.4rem; border-bottom: 2px solid #cfccc5; }
+    .paper table { font-size: 0.85rem; }
+    .paper td.num, .paper th.num { text-align: right; white-space: nowrap; }
+    .paper td.c, .paper th.c { text-align: center; white-space: nowrap; }
+    .paper .lead { font-size: 1.1rem; }
+    .scroll { overflow-x: auto; }
+    .abstract { background: #efeeea; border: 2px solid #cfccc5; padding: 1.2rem 1.4rem; margin: 1.4rem 0 1rem; }
+    .abstract p:last-child { margin: 0; }
+  </style>
+
+  <h1>Spackle</h1>
+  <p class="dim">Self-contained polyfills for older hardware. Measured against core-js 3.50, 2026-10-30. Spackle release 0.1.0-alpha.9.</p>
+
+  <div class="abstract">
+    <p><b>Abstract.</b> Polyfill libraries often route API calls through shared helpers. Spackle instead keeps each polyfill self-contained, reducing helper work and temporary allocations. In a simulated front-end workload across 24 Chromium WebViews (41 to 150), the oldest engines used up to 6× less polyfill time and produced up to 7× less garbage with Spackle. From Chromium 69, results were within 10%, as both libraries relied more on native implementations. On one 2017 LG TV, the SolidTV demo app's median initial render was 4.53 seconds with core-js and 1.03 seconds with Spackle (4.4× faster). These results describe the tested workload and device; they are not a guarantee for every application.</p>
+  </div>
+
+
+  <div class="paper">
+    <h2 id="problem">1. The problem</h2>
+    <p>Many devices ship WebViews years behind desktop browsers, often with slower CPUs and less available memory. Applications support those engines through a polyfill library (a common choice is core-js). It is built the way a library should be: every API routed through shared internals (<code>toObject</code>, <code>lengthOfArrayLike</code>, <code>getIteratorMethod</code>, and so on), each one correct, each one small. Most engineers learn DRY early, and it is usually the right call.</p>
+    <p>DRY is costing us. For example, a single polyfilled <code>Array.from</code> walks a chain of nested helper functions, and several of those allocate: an iterator record, a bound function, an options object. On a modern machine this is a negligible slowdown. But on older, slower hardware (where these polyfills are needed), garbage collection runs on the main thread, which causes UI jitter and makes apps feel sluggish.</p>
+
+    <h2 id="approach">2. Approach: islands</h2>
+    <p>Each Spackle polyfill is one function with no imports. Instead of DRY, Spackle was built to be WET (write everything twice): polyfills that rely on other polyfills have those dependencies inlined.</p>
+    <p>So there are no helper chains: the hot path is a single frame with the work in it and nothing else. Spackle also avoids temporary per-call allocations in its polyfill paths, reducing the short-lived objects the collector would otherwise need to clean up.</p>
+    <p>The obvious objection is maintenance: a fix to shared logic has to be made in every island that carries it. In practice this has not been as much of a burden as expected. The functions are small by nature, and the duplicated part is a few lines of coercion.</p>
+    <p>Shared helpers have the opposite problem: a change to one helper changes every API routed through it, so a fix for <code>Array.from</code> is also, silently, a change to <code>Map</code>, <code>Promise.all</code> and forty other entry points. An island's blast radius is the island.</p>
+    <p>The trade is scope. core-js tracks the whole language and unfinished proposals, across Node and most browsers. Spackle focuses on established APIs, in browsers only, from Safari 7.1 and Chromium 38 up.</p>
+    <p>As a direct test of the WET design: the same <code>Map</code> polyfill written twice, once as an island and once routed through shared helpers, with nothing else different. The island was 1.66× faster and produced 2.2× less garbage.</p>
+
+    <h2 id="method">3. Method</h2>
+    <p>Spackle was run against core-js in a WebView running each Chromium version from 41 to 150, about every fifth release, 24 versions in all. Every run had a fresh browser, a 64 MB JavaScript heap and one CPU core. Each test ran twice with the library order swapped; the median is reported. Garbage collection counts, pause times and heap sizes come from V8's own log, not from a sampling profiler.</p>
+    <div class="scroll"><table>
+      <tr><th>Setting</th><th>Value</th></tr>
+      <tr><td>WebViews</td><td>24 Chromium versions, 41 to 150</td></tr>
+      <tr><td>Heap</td><td>64 MB</td></tr>
+      <tr><td>CPU</td><td>Single core</td></tr>
+      <tr><td>Passes</td><td>2,000</td></tr>
+      <tr><td>Runs</td><td>2 per test, library order swapped, median reported</td></tr>
+      <tr><td>GC measurement</td><td>V8's own log</td></tr>
+      <tr><td>core-js entry</td><td><code>core-js/stable</code> and the full bundle: results within noise of each other</td></tr>
+    </table></div>
+    <p><b>The stress test</b> is a render loop that calls polyfilled built-ins the way a front-end framework does on each render: <code>Object.assign</code>, <code>Array.from</code>, <code>Map</code>, <code>URL</code>, string and array helpers, hundreds of calls per pass. It is deliberately a worst case for a polyfill library. It measures what the polyfills cost, not whole-application speed.</p>
+    <p><b>The hot-path test</b> calls one API 500 times in a row and times it, after a warm-up, averaged over 10 executions.</p>
+
+    <h2 id="results">4. Results</h2>
+    <h3>Stress test, by Chromium version</h3>
+    <p class="dim">Spackle relative to core-js. ≈ means within 10%.</p>
+    <div class="scroll"><table>
+      <tr><th>Chromium</th><th class="c">41</th><th class="c">45</th><th class="c">50</th><th class="c">56</th><th class="c">61</th><th class="c">69+</th></tr>
+      {chromium.map(([m, ...v]) => (
+        <tr><td><b>{m}</b></td>{v.map((x, i) => <td class="c">{i === 0 ? <b>{x}</b> : x}</td>)}</tr>
+      ))}
+    </table></div>
+    <p class="dim">From Chromium 69 both libraries step aside for native built-ins and the two are level.</p>
+
+    <h3>Hot paths, by Chromium version</h3>
+    <p class="dim">How many times faster Spackle's polyfill ran than core-js's. ≈ means within 10%.</p>
+    <div class="scroll"><table>
+      <tr><th>Chromium</th><th class="c">41</th><th class="c">50</th><th class="c">56</th><th class="c">78</th></tr>
+      {hot.map(([m, ...v]) => (
+        <tr><td><code>{m}</code></td>{v.map((x) => <td class="c">{x === '≈' ? x : <b>{x}</b>}</td>)}</tr>
+      ))}
+    </table></div>
+
+    <h2 id="real-hardware">5. Real hardware</h2>
+    <p>A 2017 LG smart TV, webOS 3.5, Chromium 38. Both results are from the same physical TV, read from the device's own performance trace.</p>
+    <h3>Application: SolidTV demo</h3>
+    <p class="dim">The <a href="https://github.com/solid-tv/solid-demo-app">SolidTV demo app</a>, default build against the same build with Spackle. Five-run medians.</p>
+    <div class="scroll"><table>
+      <tr><th>Metric</th><th class="num">Baseline</th><th class="num">With Spackle</th><th class="num">Change</th></tr>
+      {solid.map(([m, a, b, d]) => (
+        <tr><td><b>{m}</b></td><td class="num">{a}</td><td class="num">{b}</td><td class="num"><b>{d}</b></td></tr>
+      ))}
+    </table></div>
+    <h3>Stress test on the TV</h3>
+    <p class="dim">The same stress test as section 3, cut to 500 passes, the most the TV can run. Three runs.</p>
+    <div class="scroll"><table>
+      <tr><th>Metric</th><th class="num">Spackle vs core-js</th></tr>
+      <tr><td><b>Garbage</b></td><td class="num"><b>~9× less</b></td></tr>
+      <tr><td><b>Garbage collections</b></td><td class="num"><b>~5× fewer</b></td></tr>
+      <tr><td><b>Peak heap</b></td><td class="num"><b>37% lower</b></td></tr>
+    </table></div>
+
+    <h2 id="compliance">6. Spec compliance</h2>
+    <p>Behavior was checked with 1,357 selected checks derived from test262 and web-platform-tests, run in the browser with each library installed over the engine's own natives. This is a targeted check set covering each polyfill Spackle supports. Some checks are skipped where a polyfill crashes the WebView (this happens with core-js). An important note: neither core-js nor Spackle passes everything. In the recorded runs, Spackle's pass rate was at or above core-js's on each engine. The per-engine table and the same 1,357 checks for your browser are on <a href="/verify">Verify</a>.</p>
+
+    <h2 id="data">7. Data</h2>
+    <p class="dim">The files the tables came from, as recorded. JSON traces open in Chrome DevTools, Performance, Load profile.</p>
+    <div class="scroll"><table>
+      <tr><th>File</th><th>What it is</th></tr>
+      {data.map(([file, what]) => (
+        <tr><td><a href={'/data/' + file}>{file}</a></td><td>{what}</td></tr>
+      ))}
+    </table></div>
+  </div>
+</Tv>

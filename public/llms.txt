@@ -1,0 +1,24 @@
+# Spackle
+
+> Self-contained JavaScript polyfills for older devices and WebViews (Chromium 38+, Safari 7.1+). A core-js alternative for supported APIs. Each polyfill is an "island" with no shared helper chain, designed to reduce temporary allocations and garbage-collection work.
+
+Key facts:
+- Package: `npm install @shim-works/spackle` (currently `0.1.0-alpha.9`, MIT licensed). Alpha software: check coverage in the README before adopting. Import it first: `import '@shim-works/spackle';`
+- Coverage matches `core-js/stable`: ES2015 to ES2025 built-ins, URL, URLSearchParams, structuredClone, DOM iteration helpers. It does not polyfill unfinished proposals.
+- Each polyfill installs only if a feature probe says the engine lacks it; native built-ins are kept.
+- Turn off Babel's automatic core-js injection (`useBuiltIns: false`) so the two libraries don't both load.
+- Measured against core-js 3.50 in a simulated front-end workload across 24 Chromium WebViews (41 to 150), with a 64 MB heap and one CPU core. On the oldest engines, the workload showed up to ~6x less polyfill time and ~7x less garbage; from Chromium 69, results were within 10%.
+- On one 2017 LG TV (webOS 3.5, Chromium 38), the SolidTV demo app's median initial render was 4.53 seconds with core-js and 1.03 seconds with Spackle (4.4x faster). This is one app on one device, not a general performance guarantee.
+- Browser behavior: 1,357 selected checks derived from test262 and web-platform-tests. This is not a complete conformance suite, and some checks may be skipped when the browser lacks a required capability. In recorded runs Spackle's pass rate was at or above core-js's; neither library passed every check.
+
+## Docs
+
+- [Home](https://spackle.samseabourn.com/): what it is and how to install it
+- [The paper](https://spackle.samseabourn.com/paper/): approach, method, results tables, spec compliance, raw data
+- [Test this device](https://spackle.samseabourn.com/verify/): spec-compliance checks, recorded and live
+- [README](https://github.com/shim-works/spackle#readme): install guides for Babel, SWC and Vite
+
+## Optional
+
+- [Compare](https://spackle.samseabourn.com/device/): live benchmarks against core-js in the visitor's browser
+- [Raw results (CSV)](https://spackle.samseabourn.com/data/webview-summary.csv): one row per test, library and Chromium version

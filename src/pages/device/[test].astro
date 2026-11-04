@@ -1,0 +1,52 @@
+---
+/*
+ * One /tv test per page, from src/tests.ts.
+ *
+ * The measuring scripts live in public/: each script
+ * finds its #run / #out / #app by id and calls window.tvDone when it has a
+ * result. tv-steps.js turns that into the
+ * headline and the Next button.
+ *
+ * workload and speed load no library in this page: they put each
+ * library in its own iframe, one at a time. The React pages load one library
+ * straight into the page, which is why they are two pages.
+ */
+import Tv from '../../layouts/Tv.astro';
+import { TESTS } from '../../tests';
+
+export function getStaticPaths() {
+  return TESTS.map((t, i) => ({ params: { test: t.slug }, props: { i } }));
+}
+
+const { i } = Astro.props;
+const t = TESTS[i];
+const next = TESTS[i + 1] ? '/device/' + TESTS[i + 1].slug : '/device/done';
+---
+
+<Tv title={t.name + ' — Spackle'}>
+  <div id="tv-test" data-kind={t.kind} data-slug={t.slug}>
+    <p class="dim mono">Test {i + 1} of {TESTS.length}</p>
+    <h1>{t.name}</h1>
+    <p set:html={t.blurb} />
+    {t.about && <p class="dim"><b>What the test does:</b> {t.about}</p>}
+
+    <button id="run" data-autofocus>Start</button>
+    <a class="btn" id="next" href={next} style="display:none">{TESTS[i + 1] ? 'Next test →' : 'See the results →'}</a>
+
+    <ul class="checklist" id="checklist" style="display:none"></ul>
+    {t.kind === 'react' && <div id="live"></div>}
+    <div class="card" id="result" style="display:none"></div>
+
+    <button class="quiet" id="toggle-details" style="display:none">Show the nerdy details</button>
+    <div id="details" style="display:none">
+      <div id="out"></div>
+    </div>
+  </div>
+
+  <Fragment slot="end">
+    <script is:inline src="/tv-steps.js"></script>
+    {t.kind === 'workload' && <script is:inline src="/compare.js"></script>}
+    {t.kind === 'speed' && <script is:inline src="/speed.js"></script>}
+    {t.kind === 'react' && <script is:inline src="/react.js"></script>}
+  </Fragment>
+</Tv>

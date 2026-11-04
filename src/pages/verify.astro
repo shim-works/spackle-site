@@ -1,0 +1,53 @@
+---
+/*
+ * /verify: Test on the browsers.
+ *
+ * The spec checks, kept apart from the /tv race: a pass rate is not a win or
+ * a loss. Two halves: the per-engine table from the recorded logs, and the
+ * same checks run here in this browser. The runner is public/verify.js, the
+ * headline comes from tv-steps.js (kind=verify), same as the old /tv page.
+ */
+import Tv from '../layouts/Tv.astro';
+
+const verify = [
+  ['Chromium 46', '1319 passed, 34 failed', '1279 passed, 77 failed'],
+  ['Chromium 52', '1323 passed, 33 failed', '1299 passed, 58 failed'],
+  ['Safari 9.1', '1247 passed, 54 failed', '1269 passed, 85 failed'],
+  ['Safari 7.1', '1165 passed, 73 failed', '1228 passed, 124 failed'],
+];
+---
+
+<Tv title="Test this device — Spackle" description="Run 1,357 selected checks derived from test262 and web-platform-tests against Spackle and core-js in your browser; compare with recorded older-browser runs.">
+  <style is:inline>
+    .engines table { font-size: 0.85rem; }
+    .scroll { overflow-x: auto; }
+  </style>
+
+  <h1>Try Spackle on this device.</h1>
+  <p>Run 1,357 selected checks derived from <a href="https://github.com/tc39/test262">test262</a> and <a href="https://github.com/web-platform-tests/wpt">web-platform-tests</a> against Spackle and core-js in this browser. Compare core-js and Spackle's JS API coverage.</p>
+
+  <h2>Recorded runs</h2>
+  <div class="engines scroll"><table>
+    <tr><th>Engine</th><th>Spackle</th><th>core-js</th></tr>
+    {verify.map(([engine, s, c]) => (
+      <tr><td>{engine}</td><td>{s}</td><td>{c}</td></tr>
+    ))}
+  </table></div>
+
+  <h2>This browser</h2>
+  <div id="tv-test" data-kind="verify" data-slug="verify">
+    <button id="run" data-autofocus>Run the checks</button>
+    <ul class="checklist" id="checklist" style="display:none"></ul>
+    <div class="card" id="result" style="display:none"></div>
+
+    <button class="quiet" id="toggle-details" style="display:none">Show every check</button>
+    <div id="details" style="display:none">
+      <div id="out"></div>
+    </div>
+  </div>
+
+  <Fragment slot="end">
+    <script is:inline src="/tv-steps.js"></script>
+    <script is:inline src="/verify.js"></script>
+  </Fragment>
+</Tv>

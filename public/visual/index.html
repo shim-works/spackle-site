@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Islands vs Helpers</title>
+<style>
+  /* No custom properties on Chrome 38, so the colour is written out */
+  html, body { margin: 0; height: 100%; background: #e4e3de; overflow: hidden; }
+  svg { display: block; width: 100vw; height: 100vh; }
+  text { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; white-space: pre; }
+</style>
+</head>
+<body>
+<svg id="stage" viewBox="0 0 1920 1080" preserveAspectRatio="xMidYMid meet"></svg>
+<script src="graph.js"></script>
+<script>
+/*
+ * Scene 1: what the 12 bench APIs pull in. core-js's real require graph
+ *          (graph.js, from build-graph.cjs) unfolds layer by layer; spackle is
+ *          12 islands.
+ * Scene 2: what each call leaves behind. Each call's tree grows in the heap
+ *          (frames from core-js 3.50 / spackle source, temporaries hanging off
+ *          the frame that made them) and stays there greyed out once it
+ *          returns; the result goes to the app. One pass, no collection: the
+ *          garbage just builds up.
+ *
+ * Fixed 1/60 s steps: every run gives the same frames, safe to screen-record.
+ * Keys: space pause · R restart · N next scene. URL: ?scene=1|2, ?clean
+ * The old scene 3 (measured numbers) lives on the home page now.
+ */
+var NS = 'http://www.w3.org/2000/svg';
+var C = {
+  // light minimal, Steelcase Seagull ground
+  bg: '#e4e3de', panel: '#efeeea', line: '#cfccc5', text: '#2a2927', dim: '#8a877f',
+  node: '#9e9b93', edge: '#b9b6ae', live: '#8f8c84',
+  hl: '#3b6fd4', res: '#4f9a6c', tmp: '#d39b3a', dead: '#c6c3bc', ghost: '#d6d4ce', stop: '#c4473c',
+  left: '#d5762c', right: '#5a9a57'
+};
+var DT = 1 / 60;
+// A regex, not URLSearchParams, so old TVs needn't load a polyfill first
+var CLEAN = /[?&]clean\b/.test(location.search);
+var START = Math.max(0, Math.min(1, (+((/[?&]scene=(\d)/.exec(location.search) || [])[1]) || 1) - 1));
+var stage = document.getElementById('stage');
+
+function el(tag, attrs, parent) {
+  var e = document.createElementNS(NS, tag);
+  for (var k in attrs) {
+    // Old engines (Chrome < 50, Safari < 12) only read xlink:href on <image>
+    if (k === 'href') e.setAttributeNS('http://www.w3.org/1999/xlink', 'xlink:href', attrs[k]);
+    else e.setAttribute(k, attrs[k]);
+  }
+  if (parent) parent.appendChild(e);
+  return e;
+}
+// Render() runs every frame; only touch the DOM when a value changes.
+// Old TVs repaint the whole SVG on any attribute write.
+function set(e, k, v) { if (e['_' + k] !== v) { e['_' + k] = v; e.setAttribute(k, v); } }
+// No fades (each fading group is its own layer on old Chrome): things are shown or not.
+function show(e, on) { set(e, 'visibility', on ? 'visible' : 'hidden'); }
+function txt(s, attrs, parent) { var e = el('text', attrs, parent); e.textContent = s; return e; }
+function clamp01(t) { return t < 0 ? 0 : t > 1 ? 1 : t; }
+function ease(t) { t = clamp01(t); return 1 - Math.pow(1 - t, 3); }
+function frameScene(root, title) {
+  el('rect', { x: 0, y: 0, width: 1920, height: 1080, fill: C.bg }, root);
+  txt(title, { x: 960, y: 76, 'font-size': 40, 'font-weight': 700, fill: C.text, 'text-anchor': 'middle' }, root);
+  if (!CLEAN) txt('space pause · R restart · N next scene', { x: 960, y: 1068, 'font-size': 14, fill: C.dim, 'text-anchor': 'middle' }, root);
+}
+// [file, width / height, size tweak]
+var LOGO = { 'core-js': ['assets/core-js-logo.png', 7598 / 1796, 1], spackle: ['assets/spackle-logo.svg', 240 / 86, 1.1] };
+// centred on (cx, cy)
+function logo(name, cx, cy, h, g) {
+  var l = LOGO[name], hh = h * l[2], w = hh * l[1];
+  el('image', { href: l[0], x: cx - w / 2, y: cy - hh / 2, width: w, height: hh }, g);
+}
+// logo centred over its 880-wide column
+function paneHeader(g, name) { logo(name, 440, 120, 56, g); }
+
+/* ---------------------------------------------------------------- scene 1 */
+
+function sceneLoaded(root) {
+  frameScene(root, 'How deep each call goes');
+  el('line', { x1: 960, y1: 151, x2: 960, y2: 1040, stroke: C.line, 'stroke-width': 2 }, root);
+  var G = window.GRAPH, nodes = G.nodes, W = 880;
+  var L = el('g', { transform: 'translate(40,36)' }, root);
+  var R = el('g', { transform: 'translate(1000,36)' }, root);
+  paneHeader(L, 'core-js');
+  paneHeader(R, 'spackle');
+
+  // API row: one row of four, same spots on both sides.
+  var apiPos = function (i) { return [W / 8 + i * (W / 4), 200]; };
+  var parents = nodes.map(function () { return []; });
+  G.edges.forEach(function (e) { parents[e[1]].push(e[0]); });
+  var byLayer = [];
+  nodes.forEach(function (n, i) { (byLayer[n.layer] = byLayer[n.layer] || []).push(i); });
+  var pos = [];
+  byLayer[0].forEach(function (i, k) { pos[i] = apiPos(k); });
+  var top = 260, bottom = 940, step = (bottom - top) / (byLayer.length - 2);
+  for (var l = 1; l < byLayer.length; l++) {
+    var list = byLayer[l].map(function (i) {
+      var ps = parents[i].filter(function (p) { return pos[p]; });
+      var bx = ps.length ? ps.reduce(function (s, p) { return s + pos[p][0]; }, 0) / ps.length : W / 2;
+      return [i, bx];
+    }).sort(function (a, b) { return a[1] - b[1]; });
+    list.forEach(function (item, k) { pos[item[0]] = [30 + (k + 0.5) * ((W - 60) / list.length), top + (l - 1) * step]; });
+  }
+  var reveal = function (layer) { return 0.8 + layer * 0.5; };
+
+  var edgeG = el('g', {}, L), nodeG = el('g', {}, L);
+  var edgeEls = G.edges.map(function (e) {
+    var a = pos[e[0]], b = pos[e[1]];
+    return { e: e, el: el('line', { x1: a[0], y1: a[1], x2: b[0], y2: b[1], stroke: C.edge, 'stroke-width': 1, 'stroke-opacity': 0.35, visibility: 'hidden' }, edgeG) };
+  });
+  var nodeEls = nodes.map(function (n, i) {
+    var p = pos[i], g = el('g', { visibility: 'hidden' }, nodeG);
+    if (n.kind === 'api') {
+      var w = Math.max(60, n.label.length * 9.2 + 16);
+      el('rect', { x: p[0] - w / 2, y: p[1] - 14, width: w, height: 28, rx: 14, fill: C.panel, stroke: C.left }, g);
+      txt(n.label, { x: p[0], y: p[1] + 5, 'font-size': 15, 'text-anchor': 'middle', fill: C.text }, g);
+    } else {
+      el('circle', { cx: p[0], cy: p[1], r: 4.5, fill: C.node }, g);
+    }
+    return g;
+  });
+  var levelsL = txt('', { x: W / 2, y: 1000, 'font-size': 22, fill: C.text, 'text-anchor': 'middle' }, L);
+  var levelsR = txt('', { x: W / 2, y: 1000, 'font-size': 22, fill: C.text, 'text-anchor': 'middle' }, R);
+
+  // spackle: four islands.
+  var islandEls = byLayer[0].map(function (i, k) {
+    var p = apiPos(k), g = el('g', { visibility: 'hidden' }, R), label = nodes[i].label;
+    var w = Math.max(60, label.length * 9.2 + 16);
+    el('rect', { x: p[0] - w / 2, y: p[1] - 14, width: w, height: 28, rx: 14, fill: C.panel, stroke: C.right, 'stroke-width': 2 }, g);
+    txt(label, { x: p[0], y: p[1] + 5, 'font-size': 15, 'text-anchor': 'middle', fill: C.text }, g);
+    // one fat node: the whole polyfill in one file
+    el('line', { x1: p[0], y1: p[1] + 14, x2: p[0], y2: top - ISLAND_R, stroke: C.edge }, g);
+    el('circle', { cx: p[0], cy: top, r: ISLAND_R, fill: C.node }, g);
+    return g;
+  });
+
+  var t = 0, full = reveal(byLayer.length - 1), end = full + 4;
+  return {
+    tick: function (dt) { t += dt; },
+    done: function () { return t > end; },
+    render: function () {
+      var deepest = 0;
+      nodes.forEach(function (n, i) {
+        // the API row and each one's entry point are there from the first frame;
+        // only the helpers below unfold
+        var on = n.layer <= 1 || t >= reveal(n.layer);
+        show(nodeEls[i], on);
+        if (on) deepest = Math.max(deepest, n.layer);
+      });
+      var l = 'nested helper functions ' + Math.max(0, deepest - 1), r = 'nested helper functions 0';
+      if (levelsL.textContent !== l) levelsL.textContent = l;
+      if (levelsR.textContent !== r) levelsR.textContent = r;
+      edgeEls.forEach(function (x) { var l = nodes[x.e[1]].layer; show(x.el, l <= 1 || t >= reveal(l)); });
+      islandEls.forEach(function (g) { show(g, true); });
+    }
+  };
+}
+
+/* ---------------------------------------------------------------- scene 2 */
+
+// Call trees. objs: one letter per heap object the frame allocates:
+// r = result (the app keeps it), t = temporary. Helper names are core-js 3.50
+// internals; Chrome 38/41 have no Reflect.construct, so isConstructor takes the
+// legacy path (Function#toString + RegExp#exec).
+function T(name, objs, kids) { return { name: name, objs: objs || '', kids: kids || [] }; }
+function rep(n, f) { var a = []; for (var i = 0; i < n; i++) a.push(f()); return a; }
+function LEN() { return T('lengthOfArrayLike', '', [T('toLength', '', [T('toIntegerOrInfinity', '', [T('mathTrunc')])])]); }
+function ROC(name) { return T(name, '', [T('requireObjectCoercible')]); }
+function ISCTOR() { return T('isConstructor', '', [T('isCallable'), T('classof', '', [T('classofRaw')]), T('inspectSource', 't'), T('exec', 't')]); }
+function GIM() { return T('getIteratorMethod', '', [T('getMethod', '', [T('aCallable')])]); }
+function DQC() { return T('decodeQueryComponent', '', [T('replace'), T('percentDecode')]); }
+function CP() { return T('createProperty', '', [T('createPropertyDescriptor', 't'), T('definePropertyModule.f')]); }
+
+var CALLS = [
+  { api: 'Object.assign',
+    core: T('Object.assign', 'r', [ROC('toObject'), T('IndexedObject'), T('objectKeys', 't'), T('getOwnPropertySymbols', 't'),
+      T('concat', 't')].concat(rep(4, function () { return T('propertyIsEnumerable'); }))),
+    island: 'rt' }, // target, one symbol list
+  { api: 'Array.from',
+    core: T('Array.from', 'r', [ISCTOR(), ROC('toObject'), GIM(), T('isArrayIteratorMethod'), LEN()]
+      .concat(rep(5, CP), [T('setArrayLength')])),
+    island: 'r' },
+  // new Map([[k1, v1], [k2, v2]]): Chrome 38/41 keep the native Map, both
+  // libraries wrap its constructor (core-js collection.js:76-81, iterate.js)
+  { api: 'Map',
+    core: T('Map', '', [T('init', 'rt', [T('anInstance'), T('inheritIfRequired', '', [T('isCallable'), T('isObject')]),
+      T('iterate', 'ttt', [T('bind', 't', [T('aCallable')]), GIM(), T('isArrayIteratorMethod'), LEN()]
+        .concat(rep(2, function () { return T('callFn', '', [T('anObject'), T('set', '', [T('uncurriedNativeMethod')])]); })))])]),
+    island: 'r' },
+  // new URLSearchParams('a=1&b=2'): no native one, core-js's full polyfill
+  // (web.url-search-params.constructor.js:107-187)
+  { api: 'URLSearchParams',
+    core: T('URLSearchParams', 'r', [T('anInstance'),
+      T('URLSearchParamsState', 'rr', [T('isObject'), T('charAt'),
+        T('parseQuery', 'rr', [T('split', 't')].concat(rep(2, function () {
+          return [T('split', 't'), T('shift'), T('join'), DQC(), DQC()];
+        }).reduce(function (a, b) { return a.concat(b); }, [])))]),
+      T('setInternalState')]),
+    island: 'rtrtrr' }
+];
+var DX = 14, DY = 26, ISLAND_R = 28;
+// Same per-frame cost on both sides; an island does its whole call inline in one
+// frame, held long enough that a pass runs ~5× faster than core-js; the island
+// is heavier per call, so it visibly builds over its dwell.
+var ISLAND_DWELL = 4.5;
+function stepDur() { return 0.2; }
+
+function buildTree(def, island) {
+  var nodes = [], frames = [], leaf = 0, maxDepth = 0;
+  function lay(n, depth, parent) {
+    var me = { type: island ? 'island' : 'frame', name: n.name, depth: depth, parent: parent, objs: [] };
+    nodes.push(me); frames.push(me);
+    var xs = [];
+    n.objs.split('').forEach(function (k) {
+      var o = { type: 'obj', kind: k, depth: depth + 1, parent: me, x: leaf++ * DX, y: (depth + 1) * DY };
+      nodes.push(o); me.objs.push(o); xs.push(o.x);
+      maxDepth = Math.max(maxDepth, depth + 1);
+    });
+    n.kids.forEach(function (k) { xs.push(lay(k, depth + 1, me).x); });
+    if (!xs.length) xs.push(leaf++ * DX);
+    me.x = (Math.min.apply(null, xs) + Math.max.apply(null, xs)) / 2;
+    me.y = depth * DY;
+    maxDepth = Math.max(maxDepth, depth);
+    return me;
+  }
+  lay(def, 0, null);
+  // wide enough for the label, tree centred in it
+  var w = Math.max(90, leaf * DX, def.name.length * 8 + 16), shift = (w - leaf * DX) / 2;
+  nodes.forEach(function (n) { n.x += shift; });
+  // island is flat: its objects sit inside the one node, nothing hangs below
+  if (island) {
+    var root = nodes[0];
+    root.x = w / 2;
+    root.objs.forEach(function (o, k) { o.x = root.x + (k - (root.objs.length - 1) / 2) * 13; o.y = 0; });
+  }
+  return { nodes: nodes, frames: frames, maxDepth: maxDepth, w: w, h: island ? ISLAND_R + 10 : (maxDepth + 1) * DY,
+    objCount: nodes.filter(function (n) { return n.type === 'obj'; }).length };
+}
+
+/*
+ * One side of scene 2: one pass over CALLS, no collection. Each call's tree
+ * grows in the heap and stays there greyed out once it returns: its
+ * temporaries are garbage now, and the garbage just builds up. The result goes
+ * up to the app.
+ */
+function makeHeapSide(g, island, accent) {
+  var W = 880, HX0 = 16, HX1 = W - 16, HY0 = 358;
+  var crumb = el('g', {}, g), crumbKey = null;
+  // call stack: name [calls →] name [calls →] name
+  function drawCrumb(names, color) {
+    var key = names.join('|') + color;
+    if (key === crumbKey) return;
+    crumbKey = key;
+    while (crumb.firstChild) crumb.removeChild(crumb.firstChild);
+    var x = 0;
+    names.forEach(function (name, i) {
+      if (i) {
+        el('rect', { x: x, y: 206, width: 76, height: 24, rx: 12, fill: C.panel, stroke: accent }, crumb);
+        txt('calls →', { x: x + 38, y: 223, 'font-size': 14, fill: C.text, 'text-anchor': 'middle' }, crumb);
+        x += 76 + 10;
+      }
+      txt(name, { x: x, y: 224, 'font-size': 16, fill: color }, crumb);
+      x += name.length * 9.6 + 10;
+    });
+  }
+  // under the logo; the row stays empty until this side finishes
+  var badge = txt('✓ done', { x: W / 2, y: 182, 'font-size': 26, 'text-anchor': 'middle', fill: C.right, visibility: 'hidden' }, g);
+  el('rect', { x: 0, y: 254, width: 70, height: 36, rx: 8, fill: C.panel, stroke: C.res, 'stroke-width': 2 }, g);
+  txt('app', { x: 35, y: 278, 'font-size': 18, fill: C.text, 'text-anchor': 'middle' }, g);
+  txt('live: what the app still holds', { x: 0, y: 314, 'font-size': 14, fill: C.dim }, g);
+  el('rect', { x: 0, y: 330, width: W, height: 630, rx: 14, fill: C.panel, stroke: C.line, 'stroke-width': 2 }, g);
+  txt('heap', { x: 16, y: 352, 'font-size': 16, fill: C.dim }, g);
+  var treeLayer = el('g', {}, g), stripLayer = el('g', {}, g);
+
+  var trees = [], strip = [], shelf = { x: HX0, y: HY0 + 56, h: 0 };
+  var st = { t: 0, call: 0, tree: null, fi: 0, tStep: 0, done: false, allocs: 0 };
+
+  function place(tr) {
+    var x = shelf.x, y = shelf.y, h = shelf.h;
+    if (x + tr.w > HX1) { x = HX0; y += h + 60; h = 0; }
+    tr.ox = x; tr.oy = y;
+    shelf = { x: x + tr.w + 40, y: y, h: Math.max(h, tr.h) };
+  }
+  function drawTree(tr, label) {
+    tr.g = el('g', { transform: 'translate(' + tr.ox + ',' + tr.oy + ')' }, treeLayer);
+    txt(label, { x: tr.nodes[0].x, y: island ? -ISLAND_R - 8 : -12, 'font-size': 13, fill: C.dim, 'text-anchor': 'middle' }, tr.g);
+    tr.nodes.forEach(function (n) {
+      if (n.parent) n.edge = el('line', { x1: n.parent.x, y1: n.parent.y, x2: n.x, y2: n.y, 'stroke-width': 1.2, visibility: 'hidden' }, tr.g);
+    });
+    tr.nodes.forEach(function (n) {
+      n.el = n.type === 'obj'
+        ? el('rect', { x: n.x - 5, y: n.y - 5, width: 10, height: 10, rx: 2, visibility: 'hidden' }, tr.g)
+        : el('circle', { cx: n.x, cy: n.y, r: n.type === 'island' ? ISLAND_R : 4.5, 'stroke-width': n.type === 'island' ? 3 : 1.5, visibility: 'hidden' }, tr.g);
+    });
+  }
+  function startCall() {
+    var def = CALLS[st.call];
+    var tr = buildTree(island ? T(def.api, def.island) : def.core, island);
+    place(tr);
+    drawTree(tr, def.api);
+    trees.push(tr);
+    st.tree = tr; st.fi = 0; st.tStep = 0;
+    visit();
+  }
+  function visit() {
+    var f = st.tree.frames[st.fi];
+    f.shown = true;
+    f.objs.forEach(function (o) { o.shown = true; st.allocs++; });
+  }
+  function finishCall() {
+    var tr = st.tree;
+    tr.done = true;
+    // the result leaves the dead tree: the app holds it now
+    tr.nodes.forEach(function (n) {
+      if (n.type !== 'obj' || n.kind !== 'r') return;
+      n.moved = true;
+      var s = { slot: strip.length, fx: tr.ox + n.x, fy: tr.oy + n.y, t0: st.t };
+      s.el = el('rect', { x: -7, y: -7, width: 14, height: 14, rx: 3, fill: C.res }, stripLayer);
+      strip.push(s);
+    });
+    st.tree = null;
+    if (++st.call >= CALLS.length) st.done = true;
+  }
+  function slotPos(s) {
+    var p = ease((st.t - s.t0) / 0.5), tx = 100 + s.slot * 22, ty = 272;
+    return [s.fx + (tx - s.fx) * p, s.fy + (ty - s.fy) * p];
+  }
+
+  return {
+    st: st,
+    tick: function (dt) {
+      st.t += dt;
+      if (st.done) return;
+      if (!st.tree) { startCall(); return; }
+      st.tStep += dt;
+      if (st.tStep < stepDur() * (island ? ISLAND_DWELL : 1)) return;
+      st.tStep = 0;
+      if (++st.fi >= st.tree.frames.length) finishCall();
+      else visit();
+    },
+    render: function () {
+      var cur = st.tree && st.tree.frames[st.fi];
+      var path = [];
+      for (var n = cur; n; n = n.parent) path.unshift(n.name);
+      if (path.length > 3) path = ['…'].concat(path.slice(-3));
+      drawCrumb(path, C.text);
+      trees.forEach(function (tr) {
+        var onStack = {};
+        if (tr === st.tree) for (var s = cur; s; s = s.parent) onStack[s.depth] = s;
+        tr.nodes.forEach(function (n) {
+          var on = !!n.shown && !n.moved;
+          show(n.el, on);
+          if (n.edge) show(n.edge, on);
+          if (!on) return;
+          if (n.type === 'obj') { set(n.el, 'fill', tr.done ? C.dead : n.kind === 'r' ? C.res : C.tmp); }
+          else {
+            var live = onStack[n.depth] === n;
+            set(n.el, 'stroke', tr.done ? C.dead : n === cur ? C.text : live ? C.hl : n.type === 'island' ? accent : C.node);
+            set(n.el, 'fill', n === cur ? C.hl : n.type === 'island' && !tr.done ? accent : C.bg);
+          }
+          if (n.edge) set(n.edge, 'stroke', tr.done ? C.ghost : C.live);
+        });
+      });
+      strip.forEach(function (s) {
+        var p = slotPos(s);
+        set(s.el, 'transform', 'translate(' + Math.round(p[0]) + ',' + Math.round(p[1]) + ')');
+      });
+      show(badge, st.done);
+    }
+  };
+}
+
+function sceneTrees(root) {
+  frameScene(root, 'What each call leaves behind');
+  el('line', { x1: 960, y1: 151, x2: 960, y2: 1008, stroke: C.line, 'stroke-width': 2 }, root);
+  var L = el('g', { transform: 'translate(40,36)' }, root), R = el('g', { transform: 'translate(1000,36)' }, root);
+  paneHeader(L, 'core-js');
+  paneHeader(R, 'spackle');
+  var legend = el('g', {}, root);
+  el('circle', { cx: 330, cy: 1036, r: 5, fill: C.bg, stroke: C.node, 'stroke-width': 1.5 }, legend);
+  txt('call frame (on the stack, drawn for context)', { x: 344, y: 1041, 'font-size': 15, fill: C.dim }, legend);
+  [[C.res, 'result, kept by the app'], [C.tmp, 'temporary'], [C.dead, 'garbage']].forEach(function (l, i) {
+    el('rect', { x: 800 + i * 270, y: 1031, width: 10, height: 10, rx: 2, fill: l[0] }, legend);
+    txt(l[1], { x: 816 + i * 270, y: 1041, 'font-size': 15, fill: C.dim }, legend);
+  });
+  var left = makeHeapSide(L, false, C.left), right = makeHeapSide(R, true, C.right);
+  var t = 0, endT = -1;
+  return {
+    tick: function (dt) {
+      t += dt;
+      if (t < 1) return;
+      left.tick(dt); right.tick(dt);
+      if (endT < 0 && left.st.done && right.st.done) endT = t;
+    },
+    done: function () { return endT >= 0 && t - endT > 4.5; },
+    render: function () { left.render(); right.render(); }
+  };
+}
+
+/* ---------------------------------------------------------------- runner */
+
+var SCENES = [sceneLoaded, sceneTrees];
+var world = { idx: 0, root: null, scene: null };
+
+function load(i) {
+  if (world.root) world.root.remove();
+  world.idx = i;
+  world.root = el('g', {}, stage);
+  world.scene = SCENES[i](world.root);
+}
+var finished = false;
+function tick(dt) {
+  world.scene.tick(dt);
+  if (!world.scene.done()) return;
+  if (world.idx < SCENES.length - 1) load(world.idx + 1);
+  else finished = true;
+}
+
+var paused = false, acc = 0, last = null;
+function frame(ts) {
+  if (last === null) last = ts;
+  var d = Math.min(0.1, (ts - last) / 1000);
+  last = ts;
+  var ticked = false;
+  if (!paused) {
+    acc += d;
+    while (acc >= DT) { tick(DT); acc -= DT; ticked = true; }
+  }
+  if (ticked) world.scene.render();
+  // Last scene done: stop drawing (a TV shouldn't repaint a still
+  // frame forever) and tell the home page, which re-enables its button.
+  if (finished) {
+    if (window.parent !== window) window.parent.postMessage({ tag: 'spackle-visual', done: true }, '*');
+    return;
+  }
+  requestAnimationFrame(frame);
+}
+addEventListener('keydown', function (e) {
+  if (e.code === 'Space') { paused = !paused; e.preventDefault(); }
+  else if (e.key === 'r' || e.key === 'R') { load(START); acc = 0; }
+  else if (e.key === 'n' || e.key === 'N') { load((world.idx + 1) % SCENES.length); acc = 0; }
+});
+load(START);
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

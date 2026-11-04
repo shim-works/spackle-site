@@ -1,0 +1,35 @@
+---
+/*
+ * Not found. Spencer blinking (SMIL baked into spencer.svg) and two words.
+ * Standalone, not Tv.astro: no nav, no footer, nothing else on the page.
+ */
+import { readFileSync } from 'node:fs';
+const spencer = readFileSync('public/assets/spencer.svg', 'utf8')
+  .replace('width="100%" height="100%"', 'class="spencer"');
+---
+
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex" />
+  <title>Nothing here — Spackle</title>
+  <link rel="icon" href="/assets/spencer.svg" />
+  <style is:inline>
+    @font-face { font-family: "Roundo"; src: url("/assets/Roundo-Medium.woff") format("woff"); }
+    html, body { height: 100%; margin: 0; background: #e4e3de; color: #2a2927; }
+    body {
+      display: -webkit-box; display: -webkit-flex; display: flex;
+      -webkit-box-orient: vertical; -webkit-flex-direction: column; flex-direction: column;
+      -webkit-box-pack: center; -webkit-justify-content: center; justify-content: center;
+      -webkit-box-align: center; -webkit-align-items: center; align-items: center;
+    }
+    .spencer { width: 14rem; height: auto; }
+    a { font: 2rem "Roundo", "Helvetica Neue", Helvetica, Arial, sans-serif; color: #2a2927; text-decoration: none; margin-top: 1rem; }
+  </style>
+</head>
+<body>
+  <Fragment set:html={spencer} />
+  <a href="/">nothing here</a>
+</body>
+</html>

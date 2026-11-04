@@ -1,0 +1,58 @@
+---
+/*
+ * One library + React 18 + the React harness, in its own realm. Loaded in an
+ * iframe by public/react.js, which runs the two of these one after the other
+ * on the same tab, like the workload and speed tests.
+ *
+ * The harness is react-bench.js. Its one tvDone line: here tvDone posts the total and the detail table to the
+ * parent. It runs on load; the parent removes the frame when it reports.
+ */
+export function getStaticPaths() {
+  return [{ params: { lib: 'spackle' } }, { params: { lib: 'core-js' } }];
+}
+const { lib } = Astro.params;
+---
+
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>React frame — {lib}</title>
+  <style is:inline>
+    body { margin: 0; padding: 0 12px; background: #efeeea; color: #8a877f; font: 13px "Helvetica Neue", Helvetica, Arial, sans-serif; }
+    #run, #out { display: none; }
+    table { border-collapse: collapse; width: 100%; }
+    td { padding: 3px 8px 3px 0; border-bottom: 1px solid #cfccc5; color: #2a2927; }
+    a { color: #d9553c; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <button id="run">Run</button>
+  <div id="out"></div>
+  <div id="app"></div>
+
+  <script is:inline>
+    (function () {
+      // Some test harnesses expose
+      // window.process to the page, and core-js then takes its Node
+      // paths. A TV has no process, so it goes.
+      try { delete window.process; } catch (e) {}
+      try { if (window.process) window.process = undefined; } catch (e) {}
+      try { delete window.setImmediate; delete window.clearImmediate; } catch (e) {}
+      try { if (window.setImmediate) window.setImmediate = window.clearImmediate = undefined; } catch (e) {}
+      window.onerror = null;
+    })();
+  </script>
+  <script is:inline set:html={'window.__LIB = ' + JSON.stringify(lib) + ';'}></script>
+  <script is:inline>
+    window.tvDone = function (d) {
+      var origin = window.location.origin || (window.location.protocol + '//' + window.location.host);
+      window.parent.postMessage({ tag: 'spackle-react', lib: d.lib, total: d.total, ops: d.ops }, origin);
+    };
+  </script>
+  <script is:inline src={'/vendor/' + lib + '.js'}></script>
+  <script is:inline src="/vendor/react.js"></script>
+  <script is:inline src="/vendor/react-dom.js"></script>
+  <script is:inline src="/react-bench.js"></script>
+  <script is:inline>window.setTimeout(function () { document.getElementById('run').onclick(); }, 0);</script>
+</body>
+</html>

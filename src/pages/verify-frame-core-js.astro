@@ -1,0 +1,58 @@
+---
+/*
+ * The core-js half of /verify-compare, loaded in an iframe by
+ * public/verify-compare.js. One status line and nothing else: it exists to be
+ * a realm. It installs core-js with the natives KEPT (the real condition), runs
+ * spackle-verify once, posts the rows out, and the parent removes it.
+ *
+ * verify-frame-spackle.astro is this file with the library swapped. Keep them
+ * duplicates: if the frames prepare the realm differently, the rows do not
+ * compare.
+ *
+ * Not linked from the nav. Opening it directly runs one library on its own.
+ */
+---
+
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>verify frame — core-js</title>
+  <style is:inline>
+    body {
+      margin: 0;
+      padding: 14px 16px;
+      background: #f7f1e8;
+      color: #6b5a56;
+      font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+      font-size: 13px;
+    }
+    b { color: #413333; }
+  </style>
+</head>
+<body>
+  <div id="status"><b>core-js</b> — loading…</div>
+
+  <!--
+    Same realm preparation as the /compare frames: some test harnesses expose
+    window.process to the page, and core-js would then take its Node
+    paths. A TV has no process, and no setImmediate either.
+  -->
+  <script is:inline>
+    (function () {
+      try { delete window.process; } catch (e) {}
+      try { if (window.process) window.process = undefined; } catch (e) {}
+      try { delete window.setImmediate; delete window.clearImmediate; } catch (e) {}
+      try { if (window.setImmediate) window.setImmediate = window.clearImmediate = undefined; } catch (e) {}
+      window.onerror = null;
+    })();
+  </script>
+  <script is:inline>
+    window.__LIB = 'core-js';
+    // overwritten by the first check; left behind if the library load freezes
+    try { window.localStorage.setItem('verify-compare:last', 'core-js: loading the library, before any check'); } catch (e) {}
+  </script>
+  <script is:inline src="/vendor/core-js.js"></script>
+  <script is:inline src="/vendor/spackle-verify.js"></script>
+  <script is:inline src="/verify-compare-frame.js"></script>
+</body>
+</html>

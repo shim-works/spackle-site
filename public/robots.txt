@@ -1,0 +1,11 @@
+# Everyone welcome, AI crawlers included.
+User-agent: *
+Allow: /
+# Benchmark harness pages: iframes and result screens, not content.
+Disallow: /compare-frame-
+Disallow: /speed-frame-
+Disallow: /verify-frame-
+Disallow: /react-frame/
+Disallow: /device/done
+
+Sitemap: https://spackle.samseabourn.com/sitemap.xml

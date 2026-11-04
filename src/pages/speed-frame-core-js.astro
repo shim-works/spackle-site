@@ -1,0 +1,98 @@
+---
+/*
+ * The core-js half of /speed, loaded in an iframe by public/speed.js.
+ *
+ * No layout, no masthead, no prose and no controls: everything this document
+ * shows is one line of status text, because the only reason it exists is to be
+ * a second realm. The parent hands it its condition on the query string
+ * (`?natives=strip&passes=5000`), it runs once on load, posts the numbers out,
+ * and the parent then removes it so the realm can be collected.
+ *
+ * speed-frame-spackle.astro is this file with the library swapped. They stay
+ * duplicates on purpose — the same reason the two standalone benchmark pages
+ * do: if the two frames delete different natives, or load their library at a
+ * different point, the traces are not comparable.
+ *
+ * Not linked from the nav. Opening it directly works and is a useful way to
+ * debug one library on its own.
+ */
+---
+
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>speed frame — core-js</title>
+  <style is:inline>
+    /* Same floor as the rest of the site: no custom properties, no grid. */
+    body {
+      margin: 0;
+      padding: 14px 16px;
+      background: #f7f1e8;
+      color: #6b5a56;
+      font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+      font-size: 13px;
+    }
+    b { color: #413333; }
+  </style>
+</head>
+<body>
+  <div id="status"><b>core-js</b> — loading…</div>
+
+  <!--
+    Natives deleted, or not, before anything else parses.
+
+    Copied verbatim from the standalone benchmark pages and from the spackle
+    frame. All four copies must delete the same set: a frame that strips a
+    different list is measuring a different install.
+
+    Gated on the query string because this has to run before the library
+    script parses. Nothing can un-delete a native after the fact, which is why
+    the parent puts the condition on this frame's src rather than offering a
+    control in here.
+  -->
+  <script is:inline>
+    (function () {
+      // Some test harnesses expose window.process to the page, and then
+      // core-js takes its Node paths (process.nextTick). A TV has no process.
+      // A harness setImmediate and window.onerror can read process, so they go
+      // too -- no TV browser has setImmediate either.
+      try { delete window.process; } catch (e) {}
+      try { if (window.process) window.process = undefined; } catch (e) {}
+      try { delete window.setImmediate; delete window.clearImmediate; } catch (e) {}
+      try { if (window.setImmediate) window.setImmediate = window.clearImmediate = undefined; } catch (e) {}
+      window.onerror = null;
+
+      if (window.location.search.indexOf('natives=strip') === -1) return;
+
+      var globals = ['URL', 'URLSearchParams', 'Symbol', 'Map', 'Set', 'WeakMap', 'WeakSet',
+        'Promise', 'DOMException', 'structuredClone', 'setImmediate', 'clearImmediate',
+        'queueMicrotask'];
+      for (var i = 0; i < globals.length; i++) {
+        try { if (globals[i] in window) delete window[globals[i]]; } catch (e) {}
+      }
+      var members = [
+        [Array.prototype, ['flat', 'flatMap', 'includes', 'find', 'findIndex', 'findLast', 'at']],
+        [String.prototype, ['padStart', 'padEnd', 'trimEnd', 'trimStart', 'replaceAll', 'at',
+          'startsWith', 'endsWith', 'includes', 'repeat']],
+        [Object, ['entries', 'values', 'fromEntries', 'assign', 'is']],
+        [Array, ['from', 'of']],
+        [Number, ['isInteger', 'parseFloat']],
+        [Math, ['trunc', 'sign', 'cbrt']]
+      ];
+      for (var p = 0; p < members.length; p++) {
+        for (var j = 0; j < members[p][1].length; j++) {
+          try { delete members[p][0][members[p][1][j]]; } catch (e) {}
+        }
+      }
+    })();
+  </script>
+  <!-- Which library the shared harness is measuring. Read by speed-bench.js. -->
+  <script is:inline>
+    window.__LIB = 'core-js';
+    // overwritten by the first case; left behind if loading the library takes the engine down
+    try { window.localStorage.setItem('speed:last', 'core-js: loading the library, before any case'); } catch (e) {}
+  </script>
+  <script is:inline src="/vendor/core-js.js"></script>
+  <script is:inline src="/speed-bench.js"></script>
+</body>
+</html>
