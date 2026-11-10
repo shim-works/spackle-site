@@ -10,10 +10,15 @@
 import Tv from '../layouts/Tv.astro';
 
 const verify = [
-  ['Chromium 46', '1319 passed, 34 failed', '1279 passed, 77 failed'],
-  ['Chromium 52', '1323 passed, 33 failed', '1299 passed, 58 failed'],
-  ['Safari 9.1', '1247 passed, 54 failed', '1269 passed, 85 failed'],
-  ['Safari 7.1', '1165 passed, 73 failed', '1228 passed, 124 failed'],
+  ['Chrome 38', '1333 passed, 23 failed', '1233 passed, 119 failed, 4 froze'],
+  ['Chromium 41 (emulated)', '1336 passed, 20 failed', '1277 passed, 75 failed'],
+  ['Chromium 66 (emulated)', '1342 passed, 15 failed', '1316 passed, 37 failed'],
+  ['Chromium 150 (emulated)', '1356 passed, 1 failed', '1349 passed, 4 failed'],
+  ['Safari 7.1', '1222 passed, 24 failed', '1227 passed, 125 failed, 4 froze'],
+  ['Safari 8', '1222 passed, 24 failed', '1227 passed, 125 failed, 4 froze'],
+  ['Safari 9.1', '1276 passed, 35 failed', '1267 passed, 85 failed, 4 froze'],
+  ['Safari 10.1', '1306 passed, 50 failed', '1264 passed, 87 failed, 6 froze'],
+  ['Safari 11.1', '1297 passed, 59 failed', '1265 passed, 87 failed, 5 froze'],
 ];
 ---
 

@@ -180,12 +180,12 @@ var spackle = function() {
                 if (target === null || target === void 0) {
                     throw new TypeError("Cannot convert undefined or null to object");
                 }
-                var to = Object(target);
+                var to = toObject5(target);
                 var stringLength = typeof target === "string" ? target.length : -1;
                 for(var i = 1; i < arguments.length; i++){
                     var source = arguments[i];
                     if (source === null || source === void 0) continue;
-                    var from4 = Object(source);
+                    var from4 = toObject5(source);
                     var keys3 = nativeNames(from4);
                     for(var k = 0; k < keys3.length; k++){
                         var key = keys3[k];
@@ -578,8 +578,7 @@ var spackle = function() {
             return false;
         }
     };
-    var makeSeen = function makeSeen() {
-        if (EngineMap) return new EngineMap();
+    var makeSeenFallback = function makeSeenFallback() {
         var keys3 = [];
         var values4 = [];
         return {
@@ -749,7 +748,7 @@ var spackle = function() {
     };
     var structuredClone = function structuredClone(value, _options) {
         if (arguments.length === 0) throw new TypeError("Failed to execute 'structuredClone' on 'Window': 1 argument required, but only 0 present.");
-        return cloneValue(value, makeSeen());
+        return cloneValue(value, EngineMap ? new EngineMap() : makeSeenFallback());
     };
     // src/modules/install-typed-array.ts
     var isSupported3 = function isSupported3() {
@@ -852,6 +851,46 @@ var spackle = function() {
     var nativeLengthGetter = typedArrayProto ? getterOf(typedArrayProto, "length") : void 0;
     var nativeBufferGetter = typedArrayProto ? getterOf(typedArrayProto, "buffer") : void 0;
     var detachedGetter = typeof ArrayBuffer !== "undefined" ? getterOf(ArrayBuffer.prototype, "detached") : void 0;
+    var sharedTypedArray = typedArrayProto ? Object.getPrototypeOf(Int8Array) : void 0;
+    var unparented = [];
+    var synthesiseTypedArray = function synthesiseTypedArray() {
+        if (sharedTypedArray || typeof Int8Array === "undefined") return;
+        var TypedArray = function TypedArray2() {
+            throw new TypeError("Abstract class TypedArray not directly constructable");
+        };
+        try {
+            Object.defineProperty(TypedArray, "name", {
+                value: "TypedArray",
+                configurable: true
+            });
+        } catch (e) {}
+        var proto2 = TypedArray.prototype;
+        var adopted = 0;
+        for(var i = 0; i < TA_NAMES.length - 1; i++){
+            var C = intrinsicByName[TA_NAMES[i]];
+            if (!C) continue;
+            try {
+                C.prototype.__proto__ = proto2;
+                C.__proto__ = TypedArray;
+            } catch (e) {}
+            if (Object.getPrototypeOf(C.prototype) === proto2 && Object.getPrototypeOf(C) === TypedArray) adopted++;
+            else unparented.push(C);
+        }
+        if (adopted) sharedTypedArray = TypedArray;
+    };
+    var clearOwn = function clearOwn(name, value) {
+        for(var i = 0; i < TA_NAMES.length - 1; i++){
+            var C = intrinsicByName[TA_NAMES[i]];
+            if (!C || !hasOwn2.call(C.prototype, name)) continue;
+            try {
+                delete C.prototype[name];
+            } catch (e) {
+                try {
+                    C.prototype[name] = value;
+                } catch (e2) {}
+            }
+        }
+    };
     var typedArrayName = function typedArrayName(O) {
         if (!isObject(O)) return void 0;
         if (nativeTagGetter) return nativeTagGetter.call(O);
@@ -860,11 +899,8 @@ var spackle = function() {
     var lengthOf = function lengthOf(O) {
         return nativeLengthGetter ? nativeLengthGetter.call(O) : O.length;
     };
-    var bufferOf = function bufferOf(O) {
-        return nativeBufferGetter ? nativeBufferGetter.call(O) : O.buffer;
-    };
     var isDetached = function isDetached(O) {
-        return !!(detachedGetter && detachedGetter.call(bufferOf(O)));
+        return !!(detachedGetter && detachedGetter.call(nativeBufferGetter ? nativeBufferGetter.call(O) : O.buffer));
     };
     var validate = function validate(O, method) {
         var name = O === null || typeof O !== "object" && typeof O !== "function" ? void 0 : nativeTagGetter ? nativeTagGetter.call(O) : nameByTag[objectToString.call(O)];
@@ -928,7 +964,7 @@ var spackle = function() {
         var v = +activeCompareFn(a, b);
         return v === v ? v : 0;
     };
-    var sortList = function sortList(items, length, compare2) {
+    var sortList = function sortList(items, length, compare) {
         if (length < 2) return items;
         var source = items;
         var target = /* @__PURE__ */ Object.create(null);
@@ -940,7 +976,7 @@ var spackle = function() {
                 var end = start + width * 2 < length ? start + width * 2 : length;
                 var out = start;
                 while(left < middle && right < end){
-                    if (compare2(source[left], source[right]) <= 0) target[out++] = source[left++];
+                    if (compare(source[left], source[right]) <= 0) target[out++] = source[left++];
                     else target[out++] = source[right++];
                 }
                 while(left < middle)target[out++] = source[left++];
@@ -960,9 +996,11 @@ var spackle = function() {
         activeCompareFn = comparefn;
         try {
             items = sortList(items, len, userCompare);
-        } finally{
+        } catch (error) {
             activeCompareFn = saved;
+            throw error;
         }
+        activeCompareFn = saved;
         return items;
     };
     var typedArrayFind = function find(callbackfn) {
@@ -1386,9 +1424,9 @@ var spackle = function() {
                     typedArrayEntries
                 ]
             ];
-            var typedArrayTypesTargets = typedArrayProto ? [
-                Object.getPrototypeOf(Int8Array)
-            ] : typedArrayTypes;
+            var typedArrayTypesTargets = sharedTypedArray ? [
+                sharedTypedArray
+            ].concat(unparented) : typedArrayTypes;
             for(var i = 0; i < typedArrayTypesTargets.length; i++){
                 var TypedArray = typedArrayTypesTargets[i];
                 if (!TypedArray) continue;
@@ -1769,9 +1807,9 @@ var spackle = function() {
                     return false;
                 }
             }();
-            var modernTypesTargets = typedArrayProto ? [
-                Object.getPrototypeOf(Int8Array)
-            ] : modernTypes;
+            var modernTypesTargets = sharedTypedArray ? [
+                sharedTypedArray
+            ].concat(unparented) : modernTypes;
             for(var i = 0; i < modernTypesTargets.length; i++){
                 var TypedArray = modernTypesTargets[i];
                 if (!TypedArray) continue;
@@ -1797,6 +1835,7 @@ var spackle = function() {
                     }
                 }
                 if (setIsBroken) {
+                    if (TypedArray === sharedTypedArray) clearOwn("set", typedArraySet);
                     Object.defineProperty(proto2, "set", {
                         value: typedArraySet,
                         writable: true,
@@ -1828,6 +1867,7 @@ var spackle = function() {
                 for(var p = 0; p < patches.length; p++){
                     if (!patches[p][0]) continue;
                     var name1 = patches[p][1];
+                    if (TypedArray === sharedTypedArray) clearOwn(name1, patches[p][2]);
                     Object.defineProperty(proto2, name1, {
                         value: patches[p][2],
                         writable: true,
@@ -1872,9 +1912,11 @@ var spackle = function() {
     var unifyIterators = function unifyIterators() {
         var arrayValues3 = Array.prototype.values;
         if (!arrayValues3 || arrayValues3.__polyfilled !== true) return;
-        var targets = typedArrayProto ? [
-            typedArrayProto
-        ] : TA_NAMES.map(function(name) {
+        var targets = sharedTypedArray ? [
+            sharedTypedArray
+        ].concat(unparented).map(function(C) {
+            return C.prototype;
+        }) : TA_NAMES.map(function(name) {
             return intrinsicByName[name] ? intrinsicByName[name].prototype : null;
         });
         var methods2 = [
@@ -1924,6 +1966,7 @@ var spackle = function() {
         }
     };
     var installTypedArray = function installTypedArray() {
+        synthesiseTypedArray();
         installTypedArrayPolyfill();
         installTypedArrayExtensionsOnNative();
         unifyIterators();
@@ -1984,10 +2027,6 @@ var spackle = function() {
     var isObject2 = function isObject2(value) {
         return value !== null && (typeof value === "object" || typeof value === "function");
     };
-    var toStr = function toStr(value) {
-        if (typeof value === "symbol") throw new TypeError("Cannot convert a Symbol value to a string");
-        return typeof value === "string" ? value : String(value);
-    };
     var HIDDEN = {
         value: void 0,
         writable: true,
@@ -2000,7 +2039,27 @@ var spackle = function() {
         enumerable: true,
         configurable: true
     };
-    var drainErrors = function drainErrors(errors) {
+    var setProto = Object.setPrototypeOf || function(o, proto2) {
+        o.__proto__ = proto2;
+        return o;
+    };
+    var AggregateError = function AggregateError2(errors, message) {
+        var options = arguments.length > 2 ? arguments[2] : void 0;
+        var msg;
+        if (message === void 0) {
+            msg = void 0;
+        } else {
+            if (typeof message === "symbol") throw new TypeError("Cannot convert a Symbol value to a string");
+            msg = typeof message === "string" ? message : String(message);
+        }
+        var self = msg === void 0 ? new Error() : new Error(msg);
+        var proto2 = this instanceof AggregateError2 ? Object.getPrototypeOf(this) : AggregateError2.prototype;
+        setProto(self, proto2);
+        if (isObject2(options) && "cause" in options) {
+            HIDDEN.value = options.cause;
+            Object.defineProperty(self, "cause", HIDDEN);
+            HIDDEN.value = void 0;
+        }
         if (errors === null || errors === void 0) {
             throw new TypeError("AggregateError requires an iterable of errors");
         }
@@ -2021,34 +2080,16 @@ var spackle = function() {
                 Object.defineProperty(out, count++, LIST);
             }
             LIST.value = void 0;
-            return out;
-        }
-        if (typeof errors.length === "number") {
+        } else if (typeof errors.length === "number") {
             for(var i = 0; i < errors.length; i++){
                 LIST.value = errors[i];
                 Object.defineProperty(out, count++, LIST);
             }
             LIST.value = void 0;
-            return out;
+        } else {
+            throw new TypeError("AggregateError argument is not iterable");
         }
-        throw new TypeError("AggregateError argument is not iterable");
-    };
-    var setProto = Object.setPrototypeOf || function(o, proto2) {
-        o.__proto__ = proto2;
-        return o;
-    };
-    var AggregateError = function AggregateError2(errors, message) {
-        var options = arguments.length > 2 ? arguments[2] : void 0;
-        var msg = message === void 0 ? void 0 : toStr(message);
-        var self = msg === void 0 ? new Error() : new Error(msg);
-        var proto2 = this instanceof AggregateError2 ? Object.getPrototypeOf(this) : AggregateError2.prototype;
-        setProto(self, proto2);
-        if (isObject2(options) && "cause" in options) {
-            HIDDEN.value = options.cause;
-            Object.defineProperty(self, "cause", HIDDEN);
-            HIDDEN.value = void 0;
-        }
-        HIDDEN.value = drainErrors(errors);
+        HIDDEN.value = out;
         Object.defineProperty(self, "errors", HIDDEN);
         HIDDEN.value = void 0;
         return self;
@@ -2081,7 +2122,50 @@ var spackle = function() {
         configurable: false
     });
     var install3 = function install3() {
-        define(window, "AggregateError", AggregateError);
+        if (!isSupported5()) {
+            define(window, "AggregateError", AggregateError);
+            return;
+        }
+        var Native = window.AggregateError;
+        try {
+            if (new Native([
+                1
+            ], "m", {
+                cause: 7
+            }).cause === 7) return;
+        } catch (e) {}
+        var Wrapped = function Wrapped1(errors, message) {
+            var error = message === void 0 ? new Native(errors) : new Native(errors, message);
+            var options = arguments.length > 2 ? arguments[2] : void 0;
+            if (options !== null && typeof options === "object" && "cause" in options) {
+                CAUSE.value = options.cause;
+                Object.defineProperty(error, "cause", CAUSE);
+                CAUSE.value = void 0;
+            }
+            if (this instanceof Wrapped && this.constructor !== Wrapped) Object.setPrototypeOf(error, Object.getPrototypeOf(this));
+            return error;
+        };
+        Wrapped.prototype = Native.prototype;
+        Object.setPrototypeOf(Wrapped, Object.getPrototypeOf(Native));
+        try {
+            Object.defineProperty(Wrapped, "name", {
+                value: "AggregateError",
+                configurable: true
+            });
+        } catch (e) {}
+        Object.defineProperty(Native.prototype, "constructor", {
+            value: Wrapped,
+            writable: true,
+            enumerable: false,
+            configurable: true
+        });
+        define(window, "AggregateError", Wrapped);
+    };
+    var CAUSE = {
+        value: void 0,
+        writable: true,
+        enumerable: false,
+        configurable: true
     };
     // src/modules/es.map.ts
     var hasSymbol = typeof Symbol !== "undefined" && Symbol.iterator != null;
@@ -3680,6 +3764,97 @@ var spackle = function() {
             define(window, "WeakMap", WeakMap2);
         }
     };
+    var nativeClosesIteratorWeakMap = function nativeClosesIteratorWeakMap(Native) {
+        var key = typeof Symbol !== "undefined" ? Symbol.iterator : void 0;
+        if (typeof key !== "symbol") return true;
+        var closed = false;
+        var steps = 0;
+        var bad = {};
+        bad[key] = function() {
+            return {
+                // one rejected item, then done: a native that accepts it can't loop forever
+                next: function next() {
+                    return steps++ ? {
+                        done: true,
+                        value: void 0
+                    } : {
+                        done: false,
+                        value: 1
+                    };
+                },
+                "return": function() {
+                    closed = true;
+                    return {};
+                }
+            };
+        };
+        try {
+            new Native(bad);
+        } catch (e) {
+            return closed;
+        }
+        return true;
+    };
+    var wrapNativeWeakMap = function wrapNativeWeakMap(Native) {
+        var proto2 = Native.prototype;
+        var getProto3 = Object.getPrototypeOf;
+        var Wrapped = function Wrapped1() {
+            if (!(this instanceof Wrapped)) throw new TypeError("Constructor WeakMap requires 'new'");
+            var that = new Native();
+            var own4 = getProto3(this);
+            if (own4 !== proto2) {
+                if (typeof Object.setPrototypeOf === "function") Object.setPrototypeOf(that, own4);
+                else that.__proto__ = own4;
+            }
+            var iterable = arguments.length > 0 ? arguments[0] : void 0;
+            if (iterable === null || iterable === void 0) return that;
+            var adder = that.set;
+            if (typeof adder !== "function") throw new TypeError("WeakMap constructor: this.set is not a function");
+            var method = iterable[Symbol.iterator];
+            if (typeof method !== "function") throw new TypeError("WeakMap constructor argument is not iterable");
+            var iterator = method.call(iterable);
+            if (iterator === null || typeof iterator !== "object" && typeof iterator !== "function") {
+                throw new TypeError("Result of the Symbol.iterator method is not an object");
+            }
+            var next8 = iterator.next;
+            for(;;){
+                var step = next8.call(iterator);
+                if (step === null || typeof step !== "object" && typeof step !== "function") {
+                    throw new TypeError("Iterator result is not an object");
+                }
+                if (step.done) return that;
+                var item = step.value;
+                try {
+                    if (item === null || typeof item !== "object" && typeof item !== "function") {
+                        throw new TypeError("Iterator value is not an entry object");
+                    }
+                    adder.call(that, item[0], item[1]);
+                } catch (error) {
+                    try {
+                        var ret = iterator["return"];
+                        if (ret !== void 0 && ret !== null) ret.call(iterator);
+                    } catch (e) {}
+                    throw error;
+                }
+            }
+        };
+        try {
+            Object.defineProperty(Wrapped, "name", {
+                value: "WeakMap",
+                configurable: true
+            });
+        } catch (e) {}
+        Wrapped.prototype = proto2;
+        Object.defineProperty(proto2, "constructor", {
+            value: Wrapped,
+            writable: true,
+            enumerable: false,
+            configurable: true
+        });
+        window.WeakMap = null;
+        delete window.WeakMap;
+        define(window, "WeakMap", Wrapped);
+    };
     var install6 = function install6() {
         installWeakMapPolyfill();
         var Native = window.WeakMap;
@@ -3694,6 +3869,7 @@ var spackle = function() {
                 });
             } catch (e) {}
         }
+        if (typeof Native === "function" && Native !== WeakMap2 && !nativeClosesIteratorWeakMap(Native)) wrapNativeWeakMap(Native);
     };
     // src/modules/es.promise.ts
     var isSupported7 = function isSupported7() {
@@ -3830,12 +4006,6 @@ var spackle = function() {
             rejectionCheckScheduled = true;
             w0.setTimeout(checkRejections, 0);
         }
-    };
-    var onUnhandled = function onUnhandled(state) {
-        pendingRejections.push(state);
-        if (rejectionCheckScheduled) return;
-        rejectionCheckScheduled = true;
-        w0.setTimeout(checkRejections, 0);
     };
     var onHandleUnhandled = function onHandleUnhandled(state) {
         w0.setTimeout(function() {
@@ -3982,16 +4152,6 @@ var spackle = function() {
             reaction.resolve(value);
         }
     };
-    var runReactions = function runReactions(state, isReject) {
-        var reactions = state.reactions;
-        state.reactions = null;
-        state.notified = false;
-        if (reactions !== null) {
-            if (reactions.length === void 0) callReaction(reactions, state);
-            else for(var i = 0; i < reactions.length; i++)callReaction(reactions[i], state);
-        }
-        if (isReject && !state.rejection) onUnhandled(state);
-    };
     var runNextJob = function runNextJob() {
         var kind = jobs[jobHead];
         var a = jobs[jobHead + 1];
@@ -4008,9 +4168,26 @@ var spackle = function() {
             jobs.length = rest;
             jobHead = 0;
         }
-        if (kind === NOTIFY) runReactions(a, b);
-        else if (kind === REACTION) callReaction(a, b);
-        else resolveThenable(a, b, c);
+        if (kind === NOTIFY) {
+            var reactions = a.reactions;
+            a.reactions = null;
+            a.notified = false;
+            if (reactions !== null) {
+                if (reactions.length === void 0) callReaction(reactions, a);
+                else for(var i1 = 0; i1 < reactions.length; i1++)callReaction(reactions[i1], a);
+            }
+            if (b && !a.rejection) {
+                pendingRejections[pendingRejections.length] = a;
+                if (!rejectionCheckScheduled) {
+                    rejectionCheckScheduled = true;
+                    w0.setTimeout(checkRejections, 0);
+                }
+            }
+        } else if (kind === REACTION) {
+            callReaction(a, b);
+        } else {
+            resolveThenable(a, b, c);
+        }
     };
     var runExecutor = function runExecutor(executor, resolveFn, rejectFn) {
         try {
@@ -5477,8 +5654,17 @@ var spackle = function() {
         return out;
     };
     var isHex = function isHex(c) {
-        return /^[0-9A-Fa-f]$/.test(c);
+        var n = c.charCodeAt(0);
+        return n >= 48 && n <= 57 || n >= 65 && n <= 70 || n >= 97 && n <= 102;
     };
+    var RE_SURROGATE = /[\ud800-\udfff]/;
+    var RE_ALL_DIGITS = /^[0-9]+$/;
+    var RE_ALL_HEX = /^[0-9A-Fa-f]+$/;
+    var RE_ALL_OCTAL = /^[0-7]+$/;
+    var RE_NON_ASCII = /[^\u0000-\u007f]/;
+    var RE_NON_BASIC = /[^\0-~]/;
+    var RE_FORBIDDEN_HOST = /[\u0000\t\n\r #/:<>?@[\\\]^|]/;
+    var RE_FORBIDDEN_DOMAIN = /[\u0000-\u0020#%/:<>?@[\\\]^|\u007f]/;
     var percentDecodeUtf8 = function percentDecodeUtf8(s) {
         if (s.indexOf("%") === -1) return s;
         var bytes = [];
@@ -5556,7 +5742,7 @@ var spackle = function() {
     var toUSV = function toUSV(value) {
         if (typeof value === "symbol") throw new TypeError("Cannot convert a Symbol value to a string");
         var s = String(value);
-        return /[\ud800-\udfff]/.test(s) ? s.replace(/[\ud800-\udbff][\udc00-\udfff]|[\ud800-\udfff]/g, function(m) {
+        return RE_SURROGATE.test(s) ? s.replace(/[\ud800-\udbff][\udc00-\udfff]|[\ud800-\udfff]/g, function(m) {
             return m.length === 2 ? m : "\uFFFD";
         }) : s;
     };
@@ -5571,7 +5757,7 @@ var spackle = function() {
             radix = 8;
         }
         if (input === "") return 0;
-        var valid = radix === 10 ? /^[0-9]+$/ : radix === 16 ? /^[0-9A-Fa-f]+$/ : /^[0-7]+$/;
+        var valid = radix === 10 ? RE_ALL_DIGITS : radix === 16 ? RE_ALL_HEX : RE_ALL_OCTAL;
         if (!valid.test(input)) return FAILURE;
         return parseInt(input, radix);
     };
@@ -5582,7 +5768,7 @@ var spackle = function() {
             parts.pop();
         }
         var last = parts[parts.length - 1];
-        if (last !== "" && /^[0-9]+$/.test(last)) return true;
+        if (last !== "" && RE_ALL_DIGITS.test(last)) return true;
         return parseIPv4Number(last) !== FAILURE;
     };
     var parseIPv4 = function parseIPv4(input) {
@@ -5653,8 +5839,9 @@ var spackle = function() {
                         if (input.charAt(pointer) === "." && numbersSeen < 4) pointer++;
                         else return FAILURE;
                     }
-                    if (!/^[0-9]$/.test(input.charAt(pointer))) return FAILURE;
-                    while(/^[0-9]$/.test(input.charAt(pointer))){
+                    var digit = input.charCodeAt(pointer);
+                    if (!(digit >= 48 && digit <= 57)) return FAILURE;
+                    while((digit = input.charCodeAt(pointer)) >= 48 && digit <= 57){
                         var number = +input.charAt(pointer);
                         if (ipv4Piece === -1) ipv4Piece = number;
                         else if (ipv4Piece === 0) return FAILURE;
@@ -5721,7 +5908,7 @@ var spackle = function() {
     };
     var MAPPED_ONTO_FORBIDDEN = "\xA8\xAF\xB4\xB8\u02D8\u02D9\u02DA\u02DB\u02DC\u02DD\u037A\u0384\u0385\u1FBD\u1FBF\u1FC0\u1FC1\u1FCD\u1FCE\u1FCF\u1FDD\u1FDE\u1FDF\u1FED\u1FEE\u1FFD\u1FFE\u2017\u203E\u2047\u2048\u2049\u2100\u2101\u2105\u2106\u2A74\u309B\u309C\uFC5E\uFC5F\uFC60\uFC61\uFC62\uFC63\uFDFA\uFDFB\uFE13\uFE16\uFE47\uFE48\uFE49\uFE4A\uFE4B\uFE4C\uFE55\uFE56\uFE5F\uFE64\uFE65\uFE68\uFE6A\uFE6B\uFE70\uFE72\uFE74\uFE76\uFE78\uFE7A\uFE7C\uFE7E\uFFE3";
     var domainToASCII = function domainToASCII(domain) {
-        if (!/[^\u0000-\u007f]/.test(domain)) return domain === "" ? FAILURE : domain.toLowerCase();
+        if (!RE_NON_ASCII.test(domain)) return domain === "" ? FAILURE : domain.toLowerCase();
         var mapped = "";
         for(var i = 0; i < domain.length; i++){
             var code = domain.charCodeAt(i);
@@ -5744,7 +5931,7 @@ var spackle = function() {
         for(var l = 0; l < labels.length; l++){
             var label = labels[l];
             if (l > 0) out += ".";
-            if (!/[^\0-~]/.test(label)) {
+            if (!RE_NON_BASIC.test(label)) {
                 out += label;
                 continue;
             }
@@ -5820,17 +6007,18 @@ var spackle = function() {
             return parseIPv6(input.substring(1, input.length - 1));
         }
         if (isOpaque) {
-            if (/[\u0000\t\n\r #/:<>?@[\\\]^|]/.test(input)) return FAILURE;
+            if (RE_FORBIDDEN_HOST.test(input)) return FAILURE;
             return percentEncode(input, SET_C0);
         }
         var asciiDomain = domainToASCII(percentDecodeUtf8(input));
         if (asciiDomain === FAILURE) return FAILURE;
-        if (/[\u0000-\u0020#%/:<>?@[\\\]^|\u007f]/.test(asciiDomain)) return FAILURE;
+        if (RE_FORBIDDEN_DOMAIN.test(asciiDomain)) return FAILURE;
         if (endsInANumber(asciiDomain)) return parseIPv4(asciiDomain);
         return asciiDomain;
     };
     var isAlpha = function isAlpha(c) {
-        return /^[A-Za-z]$/.test(c);
+        var n = c.charCodeAt(0);
+        return n >= 65 && n <= 90 || n >= 97 && n <= 122;
     };
     var isWindowsDriveLetter = function isWindowsDriveLetter(s) {
         return s.length === 2 && isAlpha(s.charAt(0)) && (s.charAt(1) === ":" || s.charAt(1) === "|");
@@ -5848,10 +6036,6 @@ var spackle = function() {
     var isSingleDot = function isSingleDot(s) {
         return s === "." || s.toLowerCase() === "%2e";
     };
-    var isDoubleDot = function isDoubleDot(s) {
-        var l = s.toLowerCase();
-        return l === ".." || l === ".%2e" || l === "%2e." || l === "%2e%2e";
-    };
     var shortenPath = function shortenPath(url) {
         var path = url.path;
         if (url.scheme === "file" && path.length === 1 && isNormalizedWindowsDriveLetter(path[0])) return;
@@ -5860,21 +6044,18 @@ var spackle = function() {
     var includesCredentials = function includesCredentials(url) {
         return url.username !== "" || url.password !== "";
     };
-    var newRecord = function newRecord() {
-        return {
-            scheme: "",
-            username: "",
-            password: "",
-            host: null,
-            port: null,
-            path: [],
-            query: null,
-            fragment: null
-        };
-    };
     function basicParse(input, base, url, stateOverride) {
         if (url === null) {
-            url = newRecord();
+            url = {
+                scheme: "",
+                username: "",
+                password: "",
+                host: null,
+                port: null,
+                path: [],
+                query: null,
+                fragment: null
+            };
             input = input.replace(/^[\u0000-\u0020]+|[\u0000-\u0020]+$/g, "");
         }
         input = input.replace(/[\t\n\r]/g, "");
@@ -5899,7 +6080,8 @@ var spackle = function() {
                     }
                     break;
                 case SCHEME:
-                    if (c !== "" && /^[A-Za-z0-9+\-.]$/.test(c)) {
+                    var sc = c.charCodeAt(0);
+                    if (sc >= 97 && sc <= 122 || sc >= 65 && sc <= 90 || sc >= 48 && sc <= 57 || sc === 43 || sc === 45 || sc === 46) {
                         buffer += c.toLowerCase();
                     } else if (c === ":") {
                         if (stateOverride) {
@@ -6074,7 +6256,8 @@ var spackle = function() {
                     }
                     break;
                 case PORT:
-                    if (c !== "" && /^[0-9]$/.test(c)) {
+                    var pc = c.charCodeAt(0);
+                    if (pc >= 48 && pc <= 57) {
                         buffer += c;
                     } else if (c === "" || c === "/" || c === "?" || c === "#" || special && c === "\\" || stateOverride) {
                         if (buffer !== "") {
@@ -6174,7 +6357,8 @@ var spackle = function() {
                 case PATH:
                     if (c === "" || c === "/" || special && c === "\\" || !stateOverride && (c === "?" || c === "#")) {
                         var slash = c === "/" || special && c === "\\";
-                        if (isDoubleDot(buffer)) {
+                        var lowered = buffer.toLowerCase();
+                        if (lowered === ".." || lowered === ".%2e" || lowered === "%2e." || lowered === "%2e%2e") {
                             shortenPath(url);
                             if (!slash) url.path.push("");
                         } else if (isSingleDot(buffer) && !slash) {
@@ -6589,7 +6773,7 @@ var spackle = function() {
             return false;
         }
     };
-    var CAUSE = {
+    var CAUSE2 = {
         value: void 0,
         writable: true,
         enumerable: false,
@@ -6598,9 +6782,9 @@ var spackle = function() {
     var build = function build(Native, message, options) {
         var error = message === void 0 ? new Native() : new Native(message);
         if (options !== null && typeof options === "object" && "cause" in options) {
-            CAUSE.value = options.cause;
-            Object.defineProperty(error, "cause", CAUSE);
-            CAUSE.value = void 0;
+            CAUSE2.value = options.cause;
+            Object.defineProperty(error, "cause", CAUSE2);
+            CAUSE2.value = void 0;
         }
         return error;
     };
@@ -6773,6 +6957,25 @@ var spackle = function() {
             return false;
         }
     };
+    var isErrorBehindTag = function isErrorBehindTag(value) {
+        var own4 = getOwnDesc(value, tagKey4);
+        try {
+            defineProp(value, tagKey4, shadow);
+        } catch (e) {
+            return false;
+        }
+        var result;
+        try {
+            result = objectToString3.call(value) === "[object Error]";
+        } catch (error) {
+            if (own4) defineProp(value, tagKey4, own4);
+            else delete value[tagKey4];
+            throw error;
+        }
+        if (own4) defineProp(value, tagKey4, own4);
+        else delete value[tagKey4];
+        return result;
+    };
     var errorIsError = function isError(value) {
         if (value === null || typeof value !== "object" && typeof value !== "function") return false;
         if (isDOMException(value)) return true;
@@ -6786,18 +6989,7 @@ var spackle = function() {
             }
         }
         if (!tagged) return objectToString3.call(value) === "[object Error]";
-        var own4 = getOwnDesc(value, tagKey4);
-        try {
-            defineProp(value, tagKey4, shadow);
-        } catch (e) {
-            return false;
-        }
-        try {
-            return objectToString3.call(value) === "[object Error]";
-        } finally{
-            if (own4) defineProp(value, tagKey4, own4);
-            else delete value[tagKey4];
-        }
+        return isErrorBehindTag(value);
     };
     // src/modules/es.error.to-string.ts
     var isSupported12 = function isSupported12() {
@@ -7168,11 +7360,99 @@ var spackle = function() {
             configurable: true
         });
     }
+    var nativeClosesIteratorWeakSet = function nativeClosesIteratorWeakSet(Native) {
+        var key = typeof Symbol !== "undefined" ? Symbol.iterator : void 0;
+        if (typeof key !== "symbol") return true;
+        var closed = false;
+        var steps = 0;
+        var bad = {};
+        bad[key] = function() {
+            return {
+                // one rejected item, then done: a native that accepts it can't loop forever
+                next: function next() {
+                    return steps++ ? {
+                        done: true,
+                        value: void 0
+                    } : {
+                        done: false,
+                        value: 1
+                    };
+                },
+                "return": function() {
+                    closed = true;
+                    return {};
+                }
+            };
+        };
+        try {
+            new Native(bad);
+        } catch (e) {
+            return closed;
+        }
+        return true;
+    };
+    var wrapNativeWeakSet = function wrapNativeWeakSet(Native) {
+        var proto2 = Native.prototype;
+        var getProto3 = Object.getPrototypeOf;
+        var Wrapped = function Wrapped1() {
+            if (!(this instanceof Wrapped)) throw new TypeError("Constructor WeakSet requires 'new'");
+            var that = new Native();
+            var own4 = getProto3(this);
+            if (own4 !== proto2) {
+                if (typeof Object.setPrototypeOf === "function") Object.setPrototypeOf(that, own4);
+                else that.__proto__ = own4;
+            }
+            var iterable = arguments.length > 0 ? arguments[0] : void 0;
+            if (iterable === null || iterable === void 0) return that;
+            var adder = that.add;
+            if (typeof adder !== "function") throw new TypeError("WeakSet constructor: this.add is not a function");
+            var method = iterable[Symbol.iterator];
+            if (typeof method !== "function") throw new TypeError("WeakSet constructor argument is not iterable");
+            var iterator = method.call(iterable);
+            if (iterator === null || typeof iterator !== "object" && typeof iterator !== "function") {
+                throw new TypeError("Result of the Symbol.iterator method is not an object");
+            }
+            var next8 = iterator.next;
+            for(;;){
+                var step = next8.call(iterator);
+                if (step === null || typeof step !== "object" && typeof step !== "function") {
+                    throw new TypeError("Iterator result is not an object");
+                }
+                if (step.done) return that;
+                var item = step.value;
+                try {
+                    adder.call(that, item);
+                } catch (error) {
+                    try {
+                        var ret = iterator["return"];
+                        if (ret !== void 0 && ret !== null) ret.call(iterator);
+                    } catch (e) {}
+                    throw error;
+                }
+            }
+        };
+        try {
+            Object.defineProperty(Wrapped, "name", {
+                value: "WeakSet",
+                configurable: true
+            });
+        } catch (e) {}
+        Wrapped.prototype = proto2;
+        Object.defineProperty(proto2, "constructor", {
+            value: Wrapped,
+            writable: true,
+            enumerable: false,
+            configurable: true
+        });
+        window.WeakSet = null;
+        delete window.WeakSet;
+        define(window, "WeakSet", Wrapped);
+    };
     var tagNativeWeakSet = function tagNativeWeakSet() {
         var Native = window.WeakSet;
         var tag = typeof Symbol !== "undefined" ? Symbol.toStringTag : void 0;
-        if (!tag || typeof Native !== "function" || Native === WeakSet2) return;
-        try {
+        if (typeof Native !== "function" || Native === WeakSet2) return;
+        if (tag) try {
             if (!Object.prototype.hasOwnProperty.call(Native.prototype, tag)) Object.defineProperty(Native.prototype, tag, {
                 value: "WeakSet",
                 writable: false,
@@ -7180,6 +7460,7 @@ var spackle = function() {
                 configurable: true
             });
         } catch (e) {}
+        if (!nativeClosesIteratorWeakSet(Native)) wrapNativeWeakSet(Native);
     };
     // src/modules/es.function.has-instance.ts
     var hasInstanceKey = typeof Symbol !== "undefined" ? Symbol.hasInstance : void 0;
@@ -8699,6 +8980,7 @@ var spackle = function() {
             k++;
         }
     };
+    var RE_SURROGATE2 = /[\uD800-\uDFFF]/;
     var arrayFrom = function from2(items) {
         var C = this;
         var mapfn = arguments.length > 1 ? arguments[1] : void 0;
@@ -8761,7 +9043,7 @@ var spackle = function() {
             mapping = saved;
             return result;
         }
-        if (typeof items === "string" && !warnedAstralSplit && /[\uD800-\uDFFF]/.test(items)) {
+        if (typeof items === "string" && !warnedAstralSplit && RE_SURROGATE2.test(items)) {
             warnedAstralSplit = true;
             console.warn("[spackle] Array.from: no Symbol.iterator on this engine, so strings split by UTF-16 unit \u2014 astral characters break into surrogate halves");
         }
@@ -9234,9 +9516,11 @@ var spackle = function() {
         }
         if (typeof Array.prototype.values !== "function") {
             if (typeof nativeIterator === "function") {
-                var valuesMethod = nativeIterator.name === "values" ? nativeIterator : function values4() {
-                    return nativeIterator.call(this);
-                };
+                var valuesMethod = nativeIterator.name === "values" ? nativeIterator : ({
+                    values: function values() {
+                        return nativeIterator.call(this);
+                    }
+                }).values;
                 Object.defineProperty(Array.prototype, "values", {
                     value: valuesMethod,
                     writable: true,
@@ -9341,7 +9625,7 @@ var spackle = function() {
             return false;
         }
     };
-    var toStr2 = function toStr2(value) {
+    var toStr = function toStr(value) {
         if (typeof value === "symbol") throw new TypeError("Cannot convert a Symbol value to a string");
         return typeof value === "string" ? value : String(value);
     };
@@ -9352,7 +9636,7 @@ var spackle = function() {
         for(var k = 0; k < len; k++){
             if (k > 0) result += sep;
             var element = O[k];
-            if (element !== null && element !== void 0) result += toStr2(element);
+            if (element !== null && element !== void 0) result += toStr(element);
         }
         return result;
     };
@@ -9364,7 +9648,7 @@ var spackle = function() {
         if (Array.isArray(O)) return nativeJoin.call(O, separator === void 0 ? "," : separator);
         var len = +O.length;
         len = len !== len || len <= 0 ? 0 : len > 9007199254740991 ? 9007199254740991 : Math.floor(len);
-        var sep = separator === void 0 ? "," : toStr2(separator);
+        var sep = separator === void 0 ? "," : toStr(separator);
         for(var i = 0; i < depth; i++){
             if (joining[i] === O) return "";
         }
@@ -9900,11 +10184,7 @@ var spackle = function() {
                     return false;
                 }
             }
-            var test = [
-                1,
-                2,
-                3
-            ];
+            var test = [];
             test.sort(void 0);
             try {
                 test.sort(null);
@@ -10606,86 +10886,24 @@ var spackle = function() {
     }
     var warnedUnicode = false;
     var SPEC_FLAG_ORDER = "dgimsuvy";
-    var makeStickyInstance = function makeStickyInstance(source, flags, allFlags) {
-        var bareFlags = flags.replace("y", "");
-        var searcherFlags = bareFlags.indexOf("g") === -1 ? bareFlags + "g" : bareFlags;
-        var searcher = new NativeRegExp("(?:" + source + ")|()", searcherFlags);
-        var instance = new NativeRegExp(source, bareFlags);
-        instance.lastIndex = 0;
-        try {
-            Object.defineProperty(instance, "sticky", {
-                value: true
-            });
-            var ordered = "";
-            for(var i = 0; i < SPEC_FLAG_ORDER.length; i++){
-                if (allFlags.indexOf(SPEC_FLAG_ORDER.charAt(i)) !== -1) ordered += SPEC_FLAG_ORDER.charAt(i);
-            }
-            Object.defineProperty(instance, "flags", {
-                value: ordered
-            });
-            if (allFlags.indexOf("s") !== -1) Object.defineProperty(instance, "dotAll", {
-                value: true
-            });
-        } catch (unused) {}
-        instance.exec = function(input) {
-            var str = String(input);
-            searcher.lastIndex = this.lastIndex;
-            var match2 = searcher.exec(str);
-            if (match2 && match2.index === this.lastIndex && match2[match2.length - 1] === void 0) {
-                match2.length = match2.length - 1;
-                this.lastIndex = searcher.lastIndex;
-                return match2;
-            }
-            this.lastIndex = 0;
-            return null;
-        };
-        instance.test = function(input) {
-            return this.exec(input) !== null;
-        };
-        return instance;
-    };
     var nativeToString3 = Object.prototype.toString;
     var isRegExpObject = function isRegExpObject(x) {
         return x !== null && typeof x === "object" && nativeToString3.call(x) === "[object RegExp]";
     };
-    var isRegExp = function isRegExp(x) {
-        if (x === null || typeof x !== "object" && typeof x !== "function") return false;
-        var matchKey = typeof Symbol !== "undefined" ? Symbol.match : void 0;
-        if (matchKey !== void 0) {
-            var matcher = x[matchKey];
-            if (matcher !== void 0) return !!matcher;
-        }
-        return isRegExpObject(x);
-    };
-    var escapeSource = function escapeSource(source) {
-        if (!/[/\n\r\u2028\u2029]/.test(source)) return source;
-        var out = "";
-        var inClass = false;
-        for(var i = 0; i < source.length; i++){
-            var c = source.charAt(i);
-            if (c === "\\") {
-                out += c + source.charAt(i + 1);
-                i++;
-            } else if (c === "/" && !inClass) {
-                out += "\\/";
-            } else if (c === "\n") {
-                out += "\\n";
-            } else if (c === "\r") {
-                out += "\\r";
-            } else if (c === "\u2028") {
-                out += "\\u2028";
-            } else if (c === "\u2029") {
-                out += "\\u2029";
+    var RE_NEEDS_ESCAPE = /[/\n\r\u2028\u2029]/;
+    var RegExpPolyfill = function RegExpPolyfill1(pattern, flags) {
+        var patternIsRegExp;
+        if (pattern === null || typeof pattern !== "object" && typeof pattern !== "function") {
+            patternIsRegExp = false;
+        } else {
+            var matchKey = typeof Symbol !== "undefined" ? Symbol.match : void 0;
+            var matcher = matchKey !== void 0 ? pattern[matchKey] : void 0;
+            if (matcher !== void 0) {
+                patternIsRegExp = !!matcher;
             } else {
-                if (c === "[") inClass = true;
-                else if (c === "]") inClass = false;
-                out += c;
+                patternIsRegExp = isRegExpObject(pattern);
             }
         }
-        return out;
-    };
-    var RegExpPolyfill = function RegExpPolyfill1(pattern, flags) {
-        var patternIsRegExp = isRegExp(pattern);
         if (!(this instanceof RegExpPolyfill) && patternIsRegExp && flags === void 0) {
             var patternConstructor = pattern.constructor;
             if (patternConstructor === RegExpPolyfill || patternConstructor === NativeRegExp) return pattern;
@@ -10701,7 +10919,33 @@ var spackle = function() {
             P2 = pattern.source;
             if (flags === void 0) F = pattern.flags;
         }
-        var source = P2 === void 0 ? "" : escapeSource(String(P2));
+        var source = P2 === void 0 ? "" : String(P2);
+        if (RE_NEEDS_ESCAPE.test(source)) {
+            var escaped = "";
+            var inClass = false;
+            for(var i = 0; i < source.length; i++){
+                var c = source.charAt(i);
+                if (c === "\\") {
+                    escaped += c + source.charAt(i + 1);
+                    i++;
+                } else if (c === "/" && !inClass) {
+                    escaped += "\\/";
+                } else if (c === "\n") {
+                    escaped += "\\n";
+                } else if (c === "\r") {
+                    escaped += "\\r";
+                } else if (c === "\u2028") {
+                    escaped += "\\u2028";
+                } else if (c === "\u2029") {
+                    escaped += "\\u2029";
+                } else {
+                    if (c === "[") inClass = true;
+                    else if (c === "]") inClass = false;
+                    escaped += c;
+                }
+            }
+            source = escaped;
+        }
         var flagString = F === void 0 ? "" : String(F);
         var allFlags = flagString;
         var dotAll = false;
@@ -10710,18 +10954,18 @@ var spackle = function() {
             dotAll = true;
             flagString = flagString.replace("s", "");
             var rewritten = "";
-            var inClass = false;
-            for(var i = 0; i < source.length; i++){
-                var c = source.charAt(i);
-                if (c === "\\") {
-                    rewritten += c + source.charAt(i + 1);
-                    i++;
-                } else if (c === "." && !inClass) {
+            var inClass1 = false;
+            for(var i1 = 0; i1 < source.length; i1++){
+                var c1 = source.charAt(i1);
+                if (c1 === "\\") {
+                    rewritten += c1 + source.charAt(i1 + 1);
+                    i1++;
+                } else if (c1 === "." && !inClass1) {
                     rewritten += "[\\s\\S]";
                 } else {
-                    if (c === "[") inClass = true;
-                    else if (c === "]") inClass = false;
-                    rewritten += c;
+                    if (c1 === "[") inClass1 = true;
+                    else if (c1 === "]") inClass1 = false;
+                    rewritten += c1;
                 }
             }
             source = rewritten;
@@ -10734,7 +10978,42 @@ var spackle = function() {
             flagString = flagString.replace("u", "");
         }
         if (!supportsSticky && flagString.indexOf("y") !== -1) {
-            return makeStickyInstance(source, flagString, allFlags);
+            var bareFlags = flagString.replace("y", "");
+            var searcherFlags = bareFlags.indexOf("g") === -1 ? bareFlags + "g" : bareFlags;
+            var searcher = new NativeRegExp("(?:" + source + ")|()", searcherFlags);
+            var stickyInstance = new NativeRegExp(source, bareFlags);
+            stickyInstance.lastIndex = 0;
+            try {
+                Object.defineProperty(stickyInstance, "sticky", {
+                    value: true
+                });
+                var ordered = "";
+                for(var i2 = 0; i2 < SPEC_FLAG_ORDER.length; i2++){
+                    if (allFlags.indexOf(SPEC_FLAG_ORDER.charAt(i2)) !== -1) ordered += SPEC_FLAG_ORDER.charAt(i2);
+                }
+                Object.defineProperty(stickyInstance, "flags", {
+                    value: ordered
+                });
+                if (allFlags.indexOf("s") !== -1) Object.defineProperty(stickyInstance, "dotAll", {
+                    value: true
+                });
+            } catch (unused) {}
+            stickyInstance.exec = function(input) {
+                var str = String(input);
+                searcher.lastIndex = this.lastIndex;
+                var match2 = searcher.exec(str);
+                if (match2 && match2.index === this.lastIndex && match2[match2.length - 1] === void 0) {
+                    match2.length = match2.length - 1;
+                    this.lastIndex = searcher.lastIndex;
+                    return match2;
+                }
+                this.lastIndex = 0;
+                return null;
+            };
+            stickyInstance.test = function(input) {
+                return this.exec(input) !== null;
+            };
+            return stickyInstance;
         }
         var instance = new NativeRegExp(source, flagString);
         if (dotAll) {
@@ -10742,12 +11021,12 @@ var spackle = function() {
                 Object.defineProperty(instance, "dotAll", {
                     value: true
                 });
-                var ordered = "";
-                for(var i1 = 0; i1 < SPEC_FLAG_ORDER.length; i1++){
-                    if (allFlags.indexOf(SPEC_FLAG_ORDER.charAt(i1)) !== -1) ordered += SPEC_FLAG_ORDER.charAt(i1);
+                var ordered1 = "";
+                for(var i3 = 0; i3 < SPEC_FLAG_ORDER.length; i3++){
+                    if (allFlags.indexOf(SPEC_FLAG_ORDER.charAt(i3)) !== -1) ordered1 += SPEC_FLAG_ORDER.charAt(i3);
                 }
                 Object.defineProperty(instance, "flags", {
-                    value: ordered
+                    value: ordered1
                 });
             } catch (unused) {}
         }
@@ -11201,12 +11480,21 @@ var spackle = function() {
             probe[symbol] = function() {
                 return 7;
             };
-            return "".match(probe) === 7;
+            if ("".match(probe) !== 7) return false;
+            var execCalled = false;
+            var re = /a/;
+            re.exec = function() {
+                execCalled = true;
+                return null;
+            };
+            re[symbol]("");
+            return execCalled;
         } catch (unused) {
             return false;
         }
     };
     var nativeMatch = String.prototype.match;
+    var objectToStringS = Object.prototype.toString;
     var stringMatch = function match(matcher) {
         if (this === null || this === void 0) {
             throw new TypeError("String.prototype.match called on null or undefined");
@@ -11218,7 +11506,93 @@ var spackle = function() {
                 return handler.call(matcher, this);
             }
         }
+        if (matcher === null || typeof matcher !== "object" && typeof matcher !== "function" || objectToStringS.call(matcher) !== "[object RegExp]") {
+            if (typeof matcher === "symbol") throw new TypeError("Cannot convert a Symbol value to a string");
+            matcher = new RegExp(matcher === void 0 ? "" : String(matcher));
+        }
         return nativeMatch.call(this, matcher);
+    };
+    var regExpExecAtLoad = RegExp.prototype.exec;
+    var objectToStringR = Object.prototype.toString;
+    var symbolKeyMatch = typeof Symbol !== "undefined" ? Symbol.match : void 0;
+    var nativeRegExpMatch = symbolKeyMatch ? RegExp.prototype[symbolKeyMatch] : void 0;
+    var toStrMatch = function toStrMatch(value) {
+        if (typeof value === "symbol") throw new TypeError("Cannot convert a Symbol value to a string");
+        return typeof value === "string" ? value : String(value);
+    };
+    var regExpExecMatch = function regExpExecMatch(R, S) {
+        var exec = R.exec;
+        if (typeof exec === "function") {
+            var result = exec.call(R, S);
+            if (result !== null && typeof result !== "object" && typeof result !== "function") {
+                throw new TypeError("RegExp exec method returned something other than an Object or null");
+            }
+            return result;
+        }
+        if (objectToStringR.call(R) !== "[object RegExp]") throw new TypeError("RegExp#exec called on incompatible receiver");
+        return regExpExecAtLoad.call(R, S);
+    };
+    var regExpMatch = function regExpMatch(string) {
+        var rx = this;
+        if (rx === null || typeof rx !== "object" && typeof rx !== "function") {
+            throw new TypeError("RegExp.prototype[@@match] called on a non-object");
+        }
+        if (typeof string === "symbol") throw new TypeError("Cannot convert a Symbol value to a string");
+        var S = typeof string === "string" ? string : String(string);
+        var exec = rx.exec;
+        if (exec === regExpExecAtLoad || exec === RegExp.prototype.exec) {
+            return nativeRegExpMatch ? nativeRegExpMatch.call(rx, S) : nativeMatch.call(S, rx);
+        }
+        var flags = toStrMatch(rx.flags);
+        if (flags.indexOf("g") === -1) return regExpExecMatch(rx, S);
+        var fullUnicode = flags.indexOf("u") !== -1 || flags.indexOf("v") !== -1;
+        rx.lastIndex = 0;
+        var A = [];
+        var n = 0;
+        for(;;){
+            var result = regExpExecMatch(rx, S);
+            if (result === null) return n === 0 ? null : A;
+            var matchStr = toStrMatch(result[0]);
+            A[n++] = matchStr;
+            if (matchStr === "") {
+                var thisIndex = +rx.lastIndex;
+                thisIndex = thisIndex !== thisIndex || thisIndex <= 0 ? 0 : Math.floor(thisIndex);
+                if (thisIndex > 9007199254740991) {
+                    thisIndex = 9007199254740991;
+                }
+                var nextIndex = thisIndex + 1;
+                if (fullUnicode && thisIndex + 1 < S.length) {
+                    var c = S.charCodeAt(thisIndex);
+                    if (c >= 55296 && c <= 56319) {
+                        var d = S.charCodeAt(thisIndex + 1);
+                        if (d >= 56320 && d <= 57343) {
+                            nextIndex = thisIndex + 2;
+                        }
+                    }
+                }
+                rx.lastIndex = nextIndex;
+            }
+        }
+    };
+    var installRegExpMatch = function installRegExpMatch() {
+        if (!symbolKeyMatch) return;
+        try {
+            Object.defineProperty(RegExp.prototype, symbolKeyMatch, {
+                value: regExpMatch,
+                writable: true,
+                enumerable: false,
+                configurable: true
+            });
+            try {
+                Object.defineProperty(regExpMatch, "name", {
+                    value: "[Symbol.match]",
+                    configurable: true
+                });
+            } catch (e) {}
+            Object.defineProperty(regExpMatch, "__polyfilled", {
+                value: true
+            });
+        } catch (e) {}
     };
     // src/modules/es.string.match-all.ts
     var isSupported95 = function isSupported95() {
@@ -11367,7 +11741,35 @@ var spackle = function() {
         }
         return regExpMatchAll(rx, s);
     };
+    var regExpMatchAllMethod = function regExpMatchAllMethod(string) {
+        var R = this;
+        if (R === null || typeof R !== "object" && typeof R !== "function") {
+            throw new TypeError("RegExp.prototype[@@matchAll] called on a non-object");
+        }
+        if (typeof string === "symbol") throw new TypeError("Cannot convert a Symbol value to a string");
+        return regExpMatchAll(R, typeof string === "string" ? string : String(string));
+    };
     var install22 = function install22() {
+        var matchAllKey = typeof Symbol !== "undefined" ? Symbol.matchAll : void 0;
+        if (matchAllKey && typeof RegExp.prototype[matchAllKey] !== "function") {
+            try {
+                Object.defineProperty(RegExp.prototype, matchAllKey, {
+                    value: regExpMatchAllMethod,
+                    writable: true,
+                    enumerable: false,
+                    configurable: true
+                });
+                try {
+                    Object.defineProperty(regExpMatchAllMethod, "name", {
+                        value: "[Symbol.matchAll]",
+                        configurable: true
+                    });
+                } catch (e) {}
+                Object.defineProperty(regExpMatchAllMethod, "__polyfilled", {
+                    value: true
+                });
+            } catch (e) {}
+        }
         Object.defineProperty(String.prototype, "matchAll", {
             value: stringMatchAll,
             writable: true,
@@ -11537,7 +11939,25 @@ var spackle = function() {
             probe[symbol] = function() {
                 return 7;
             };
-            return "".replace(probe) === 7;
+            if ("".replace(probe) !== 7) return false;
+            var execCalled = false;
+            var re = /a/;
+            re.exec = function() {
+                execCalled = true;
+                return null;
+            };
+            re[symbol]("");
+            if (!execCalled) return false;
+            var named = /./;
+            named.exec = function() {
+                var result = [];
+                result.groups = {
+                    a: "7"
+                };
+                return result;
+            };
+            if ("".replace(named, "$<a>") !== "7") return false;
+            return replaceKeeps$0 && !replaceSubstitutesUndefinedCapture;
         } catch (unused) {
             return false;
         }
@@ -11564,6 +11984,173 @@ var spackle = function() {
         var searchString = typeof searchValue === "string" ? searchValue : String(searchValue);
         if (typeof replaceValue === "symbol") throw new TypeError("Cannot convert a Symbol value to a string");
         return nativeReplace.call(string, searchString, typeof replaceValue === "function" || typeof replaceValue === "string" ? replaceValue : String(replaceValue));
+    };
+    var regExpExecAtLoad2 = RegExp.prototype.exec;
+    var objectToStringR2 = Object.prototype.toString;
+    var symbolKeyReplace = typeof Symbol !== "undefined" ? Symbol.replace : void 0;
+    var nativeRegExpReplace = symbolKeyReplace ? RegExp.prototype[symbolKeyReplace] : void 0;
+    var toStrReplace = function toStrReplace(value) {
+        if (typeof value === "symbol") throw new TypeError("Cannot convert a Symbol value to a string");
+        return typeof value === "string" ? value : String(value);
+    };
+    var toLengthReplace = function toLengthReplace(value) {
+        var n = +value;
+        n = n !== n || n <= 0 ? 0 : Math.floor(n);
+        return n > 9007199254740991 ? 9007199254740991 : n;
+    };
+    var replaceKeeps$0 = "a".replace(/./, "$0") === "$0";
+    var replaceSubstitutesUndefinedCapture = function() {
+        try {
+            return nativeRegExpReplace ? nativeRegExpReplace.call(/./, "a", "$0") === "" : false;
+        } catch (e) {
+            return false;
+        }
+    }();
+    var unsafeSubstitute = replaceSubstitutesUndefinedCapture ? "$" : "$0";
+    var substitutionWithNames = /\$([$&'\x60]|\d{1,2}|<[^>]*>)/g;
+    var substitutionNoNames = /\$([$&'\x60]|\d{1,2})/g;
+    var getSubstitution = function getSubstitution(matched, str, position, captures, namedCaptures, replacement) {
+        var tailPos = position + matched.length;
+        var m = captures.length;
+        var symbols = namedCaptures === void 0 ? substitutionNoNames : substitutionWithNames;
+        return nativeReplace.call(replacement, symbols, function(match2, ch) {
+            var capture2;
+            switch(ch.charAt(0)){
+                case "$":
+                    return "$";
+                case "&":
+                    return matched;
+                case "`":
+                    return str.slice(0, position);
+                case "'":
+                    return str.slice(tailPos);
+                case "<":
+                    capture2 = namedCaptures[ch.slice(1, -1)];
+                    break;
+                default:
+                    {
+                        var n = +ch;
+                        if (n === 0) return match2;
+                        if (n > m) {
+                            var f = Math.floor(n / 10);
+                            if (f === 0) return match2;
+                            if (f <= m) return captures[f - 1] === void 0 ? ch.charAt(1) : captures[f - 1] + ch.charAt(1);
+                            return match2;
+                        }
+                        capture2 = captures[n - 1];
+                    }
+            }
+            return capture2 === void 0 ? "" : capture2;
+        });
+    };
+    var regExpReplace = function regExpReplace(string, replaceValue) {
+        var rx = this;
+        if (rx === null || typeof rx !== "object" && typeof rx !== "function") {
+            throw new TypeError("RegExp.prototype[@@replace] called on a non-object");
+        }
+        if (typeof string === "symbol") throw new TypeError("Cannot convert a Symbol value to a string");
+        var S = typeof string === "string" ? string : String(string);
+        var exec = rx.exec;
+        if ((exec === regExpExecAtLoad2 || exec === RegExp.prototype.exec) && (typeof replaceValue === "function" || typeof replaceValue === "string" && replaceValue.indexOf(unsafeSubstitute) === -1 && replaceValue.indexOf("$<") === -1)) {
+            return nativeRegExpReplace ? nativeRegExpReplace.call(rx, S, replaceValue) : nativeReplace.call(S, rx, replaceValue);
+        }
+        var lengthS = S.length;
+        var functionalReplace = typeof replaceValue === "function";
+        if (!functionalReplace) replaceValue = toStrReplace(replaceValue);
+        var flags = toStrReplace(rx.flags);
+        var global = flags.indexOf("g") !== -1;
+        var fullUnicode = false;
+        if (global) {
+            fullUnicode = flags.indexOf("u") !== -1 || flags.indexOf("v") !== -1;
+            rx.lastIndex = 0;
+        }
+        var results = [];
+        for(;;){
+            var stepExec = rx.exec;
+            var result = void 0;
+            if (typeof stepExec === "function") {
+                result = stepExec.call(rx, S);
+                if (result !== null && typeof result !== "object" && typeof result !== "function") {
+                    throw new TypeError("RegExp exec method returned something other than an Object or null");
+                }
+            } else {
+                if (objectToStringR2.call(rx) !== "[object RegExp]") throw new TypeError("RegExp#exec called on incompatible receiver");
+                result = regExpExecAtLoad2.call(rx, S);
+            }
+            if (result === null) break;
+            results[results.length] = result;
+            if (!global) break;
+            if (toStrReplace(result[0]) === "") {
+                var index = toLengthReplace(rx.lastIndex);
+                var next8 = index + 1;
+                if (fullUnicode && next8 < lengthS) {
+                    var c = S.charCodeAt(index);
+                    if (c >= 55296 && c <= 56319) {
+                        var d = S.charCodeAt(next8);
+                        if (d >= 56320 && d <= 57343) next8 = index + 2;
+                    }
+                }
+                rx.lastIndex = next8;
+            }
+        }
+        var accumulated = "";
+        var nextSourcePosition = 0;
+        for(var i = 0; i < results.length; i++){
+            var result1 = results[i];
+            var resultLength = toLengthReplace(result1.length);
+            var matched = toStrReplace(result1[0]);
+            var position = +result1.index;
+            position = position !== position ? 0 : position < 0 ? Math.ceil(position) : Math.floor(position);
+            position = position < 0 ? 0 : position > lengthS ? lengthS : position;
+            var captures = [];
+            for(var n = 1; n < resultLength; n++){
+                var capN = result1[n];
+                captures[n - 1] = capN === void 0 ? void 0 : toStrReplace(capN);
+            }
+            var namedCaptures = result1.groups;
+            var replacement = void 0;
+            if (functionalReplace) {
+                var args = [
+                    matched
+                ].concat(captures, [
+                    position,
+                    S
+                ]);
+                if (namedCaptures !== void 0) args[args.length] = namedCaptures;
+                replacement = toStrReplace(replaceValue.apply(void 0, args));
+            } else {
+                if (namedCaptures !== void 0) {
+                    if (namedCaptures === null) throw new TypeError("Cannot convert undefined or null to object");
+                    namedCaptures = Object(namedCaptures);
+                }
+                replacement = getSubstitution(matched, S, position, captures, namedCaptures, replaceValue);
+            }
+            if (position >= nextSourcePosition) {
+                accumulated += S.slice(nextSourcePosition, position) + replacement;
+                nextSourcePosition = position + matched.length;
+            }
+        }
+        return nextSourcePosition >= lengthS ? accumulated : accumulated + S.slice(nextSourcePosition);
+    };
+    var installRegExpReplace = function installRegExpReplace() {
+        if (!symbolKeyReplace) return;
+        try {
+            Object.defineProperty(RegExp.prototype, symbolKeyReplace, {
+                value: regExpReplace,
+                writable: true,
+                enumerable: false,
+                configurable: true
+            });
+            try {
+                Object.defineProperty(regExpReplace, "name", {
+                    value: "[Symbol.replace]",
+                    configurable: true
+                });
+            } catch (e) {}
+            Object.defineProperty(regExpReplace, "__polyfilled", {
+                value: true
+            });
+        } catch (e) {}
     };
     // src/modules/es.string.replace-all.ts
     var isSupported101 = function isSupported101() {
@@ -11693,12 +12280,21 @@ var spackle = function() {
             probe[symbol] = function() {
                 return 7;
             };
-            return "".search(probe) === 7;
+            if ("".search(probe) !== 7) return false;
+            var execCalled = false;
+            var re = /a/;
+            re.exec = function() {
+                execCalled = true;
+                return null;
+            };
+            re[symbol]("");
+            return execCalled;
         } catch (unused) {
             return false;
         }
     };
     var nativeSearch = String.prototype.search;
+    var objectToStringS2 = Object.prototype.toString;
     var stringSearch = function search(matcher) {
         if (this === null || this === void 0) {
             throw new TypeError("String.prototype.search called on null or undefined");
@@ -11710,7 +12306,68 @@ var spackle = function() {
                 return handler.call(matcher, this);
             }
         }
+        if (matcher === null || typeof matcher !== "object" && typeof matcher !== "function" || objectToStringS2.call(matcher) !== "[object RegExp]") {
+            if (typeof matcher === "symbol") throw new TypeError("Cannot convert a Symbol value to a string");
+            matcher = new RegExp(matcher === void 0 ? "" : String(matcher));
+        }
         return nativeSearch.call(this, matcher);
+    };
+    var regExpExecAtLoad3 = RegExp.prototype.exec;
+    var objectToStringR3 = Object.prototype.toString;
+    var symbolKeySearch = typeof Symbol !== "undefined" ? Symbol.search : void 0;
+    var nativeRegExpSearch = symbolKeySearch ? RegExp.prototype[symbolKeySearch] : void 0;
+    var sameValueSearch = function sameValueSearch(a, b) {
+        return a === b ? a !== 0 || 1 / a === 1 / b : a !== a && b !== b;
+    };
+    var regExpSearch = function regExpSearch(string) {
+        var rx = this;
+        if (rx === null || typeof rx !== "object" && typeof rx !== "function") {
+            throw new TypeError("RegExp.prototype[@@search] called on a non-object");
+        }
+        if (typeof string === "symbol") throw new TypeError("Cannot convert a Symbol value to a string");
+        var S = typeof string === "string" ? string : String(string);
+        var exec = rx.exec;
+        if (exec === regExpExecAtLoad3 || exec === RegExp.prototype.exec) {
+            return nativeRegExpSearch ? nativeRegExpSearch.call(rx, S) : nativeSearch.call(S, rx);
+        }
+        var previousLastIndex = rx.lastIndex;
+        if (!sameValueSearch(previousLastIndex, 0)) rx.lastIndex = 0;
+        var result;
+        var execFn = rx.exec;
+        if (typeof execFn === "function") {
+            result = execFn.call(rx, S);
+            if (result !== null && typeof result !== "object" && typeof result !== "function") {
+                throw new TypeError("RegExp exec method returned something other than an Object or null");
+            }
+        } else {
+            if (objectToStringR3.call(rx) !== "[object RegExp]") {
+                throw new TypeError("RegExp#exec called on incompatible receiver");
+            }
+            result = regExpExecAtLoad3.call(rx, S);
+        }
+        var currentLastIndex = rx.lastIndex;
+        if (!sameValueSearch(currentLastIndex, previousLastIndex)) rx.lastIndex = previousLastIndex;
+        return result === null ? -1 : result.index;
+    };
+    var installRegExpSearch = function installRegExpSearch() {
+        if (!symbolKeySearch) return;
+        try {
+            Object.defineProperty(RegExp.prototype, symbolKeySearch, {
+                value: regExpSearch,
+                writable: true,
+                enumerable: false,
+                configurable: true
+            });
+            try {
+                Object.defineProperty(regExpSearch, "name", {
+                    value: "[Symbol.search]",
+                    configurable: true
+                });
+            } catch (e) {}
+            Object.defineProperty(regExpSearch, "__polyfilled", {
+                value: true
+            });
+        } catch (e) {}
     };
     // src/modules/es.string.split.ts
     var isSupported103 = function isSupported103() {
@@ -11722,7 +12379,33 @@ var spackle = function() {
             probe[symbol] = function() {
                 return 7;
             };
-            return "".split(probe) === 7;
+            if ("".split(probe) !== 7) return false;
+            var execCalled = false;
+            var re = /a/;
+            re.exec = function() {
+                execCalled = true;
+                return null;
+            };
+            var ctor = {};
+            var speciesKey = Symbol.species;
+            if (speciesKey) ctor[speciesKey] = function() {
+                return re;
+            };
+            var holder = {
+                constructor: ctor,
+                flags: ""
+            };
+            holder[symbol] = /./[symbol];
+            holder[symbol]("");
+            if (!execCalled) return false;
+            var over = /(?:)/;
+            var originalExec = over.exec;
+            over.exec = function() {
+                return originalExec.apply(this, arguments);
+            };
+            var parts = "ab".split(over);
+            if (parts.length !== 2 || parts[0] !== "a" || parts[1] !== "b") return false;
+            return !splitBuggy && !splitUnsupportedY;
         } catch (unused) {
             return false;
         }
@@ -11740,6 +12423,138 @@ var spackle = function() {
             }
         }
         return nativeSplit.call(this, separator, limit);
+    };
+    var regExpExecAtLoad4 = RegExp.prototype.exec;
+    var objectToStringR4 = Object.prototype.toString;
+    var symbolKeySplit = typeof Symbol !== "undefined" ? Symbol.split : void 0;
+    var nativeRegExpSplit = symbolKeySplit ? RegExp.prototype[symbolKeySplit] : void 0;
+    var regExpExecSplit = function regExpExecSplit(R, S) {
+        var exec = R.exec;
+        if (typeof exec === "function") {
+            var result = exec.call(R, S);
+            if (result !== null && typeof result !== "object" && typeof result !== "function") {
+                throw new TypeError("RegExp exec method returned something other than an Object or null");
+            }
+            return result;
+        }
+        if (objectToStringR4.call(R) !== "[object RegExp]") throw new TypeError("RegExp#exec called on incompatible receiver");
+        return regExpExecAtLoad4.call(R, S);
+    };
+    var toLengthSplit = function toLengthSplit(value) {
+        var n = +value;
+        n = n !== n || n <= 0 ? 0 : Math.floor(n);
+        return n > 9007199254740991 ? 9007199254740991 : n;
+    };
+    var splitUnsupportedY = function() {
+        try {
+            var re = new RegExp("a", "y");
+            re.lastIndex = 2;
+            return re.exec("abcd") !== null;
+        } catch (e) {
+            return true;
+        }
+    }();
+    var splitBuggy = function() {
+        try {
+            return "abbc".split(/(b)*/)[1] === "c" || "test".split(/(?:)/, -1).length !== 4 || "ab".split(/(?:ab)*/).length !== 2 || ".".split(/(.?)(.?)/).length !== 4 || ".".split(/()()/).length > 1 || "".split(/.?/).length > 0;
+        } catch (e) {
+            return true;
+        }
+    }();
+    var internalSplit = function internalSplit(separator, limit) {
+        if (separator === void 0 && limit === 0) return [];
+        return nativeSplit.call(this, separator, limit);
+    };
+    var regExpSplit = function regExpSplit(string, limit) {
+        var rx = this;
+        if (rx === null || typeof rx !== "object" && typeof rx !== "function") {
+            throw new TypeError("RegExp.prototype[@@split] called on a non-object");
+        }
+        if (typeof string === "symbol") throw new TypeError("Cannot convert a Symbol value to a string");
+        var S = typeof string === "string" ? string : String(string);
+        var exec = rx.exec;
+        if (!splitBuggy && (exec === regExpExecAtLoad4 || exec === RegExp.prototype.exec)) {
+            return nativeRegExpSplit ? nativeRegExpSplit.call(rx, S, limit) : internalSplit.call(S, rx, limit);
+        }
+        var defaultCtor = window.RegExp;
+        var C = rx.constructor;
+        if (C === void 0) C = defaultCtor;
+        else {
+            if (C === null || typeof C !== "object" && typeof C !== "function") throw new TypeError("RegExp constructor is not an object");
+            var speciesKey = typeof Symbol !== "undefined" ? Symbol.species : void 0;
+            var species = speciesKey ? C[speciesKey] : void 0;
+            if (species === void 0 || species === null) C = defaultCtor;
+            else if (typeof species === "function") C = species;
+            else throw new TypeError("RegExp @@species is not a constructor");
+        }
+        var rawFlags = rx.flags;
+        if (typeof rawFlags === "symbol") {
+            throw new TypeError("Cannot convert a Symbol value to a string");
+        }
+        var flags = typeof rawFlags === "string" ? rawFlags : String(rawFlags);
+        var unicodeMatching = flags.indexOf("u") !== -1 || flags.indexOf("v") !== -1;
+        var splitter = new C(rx, flags.indexOf("y") !== -1 ? flags : flags + "y");
+        var A = [];
+        var lim = limit === void 0 ? 4294967295 : limit >>> 0;
+        if (lim === 0) return A;
+        var size = S.length;
+        if (size === 0) {
+            if (regExpExecSplit(splitter, S) !== null) return A;
+            A[0] = S;
+            return A;
+        }
+        var p = 0;
+        var q = 0;
+        while(q < size){
+            splitter.lastIndex = q;
+            var z = regExpExecSplit(splitter, S);
+            var e = void 0;
+            if (z === null || (e = Math.min(toLengthSplit(splitter.lastIndex), size)) === p) {
+                var nextQ = q + 1;
+                if (unicodeMatching && q + 1 < S.length) {
+                    var c = S.charCodeAt(q);
+                    if (c >= 55296 && c <= 56319) {
+                        var d = S.charCodeAt(q + 1);
+                        if (d >= 56320 && d <= 57343) {
+                            nextQ = q + 2;
+                        }
+                    }
+                }
+                q = nextQ;
+                continue;
+            }
+            A[A.length] = S.slice(p, q);
+            if (A.length === lim) return A;
+            p = e;
+            var numberOfCaptures = Math.max(toLengthSplit(z.length) - 1, 0);
+            for(var i = 1; i <= numberOfCaptures; i++){
+                A[A.length] = z[i];
+                if (A.length === lim) return A;
+            }
+            q = p;
+        }
+        A[A.length] = S.slice(p, size);
+        return A;
+    };
+    var installRegExpSplit = function installRegExpSplit() {
+        if (!symbolKeySplit) return;
+        try {
+            Object.defineProperty(RegExp.prototype, symbolKeySplit, {
+                value: regExpSplit,
+                writable: true,
+                enumerable: false,
+                configurable: true
+            });
+            try {
+                Object.defineProperty(regExpSplit, "name", {
+                    value: "[Symbol.split]",
+                    configurable: true
+                });
+            } catch (e) {}
+            Object.defineProperty(regExpSplit, "__polyfilled", {
+                value: true
+            });
+        } catch (e) {}
     };
     // src/modules/es.string.starts-with.ts
     var isSupported104 = function isSupported104() {
@@ -12035,14 +12850,15 @@ var spackle = function() {
         } catch (e) {}
         try {
             var Channel = host.MessageChannel;
-            if (typeof Channel === "function") {
+            if (Channel && (typeof Channel === "function" || typeof Channel === "object")) {
                 var probe1 = new ArrayBuffer(2);
                 var channel = new Channel();
                 channel.port1.postMessage(null, [
                     probe1
                 ]);
+                var detached = probe1.byteLength === 0;
                 closePorts(channel);
-                if (probe1.byteLength === 0) {
+                if (detached) {
                     return function(buffer) {
                         var live = new Channel();
                         live.port1.postMessage(null, [
@@ -13058,8 +13874,8 @@ var spackle = function() {
     };
     var scratch2 = [];
     var depth2 = 0;
-    var mathHypot = function hypot(_value1, _value2) {
-        var count = arguments.length;
+    var hypotMany = function hypotMany(args) {
+        var count = args.length;
         var values4 = depth2 === 0 ? scratch2 : new Array(count);
         depth2++;
         var max3 = 0;
@@ -13067,7 +13883,7 @@ var spackle = function() {
         var hasNaN = false;
         try {
             for(var i = 0; i < count; i++){
-                var numeric = +arguments[i];
+                var numeric = +args[i];
                 values4[i] = numeric;
                 if (numeric === Infinity || numeric === -Infinity) {
                     hasInfinity = true;
@@ -13080,9 +13896,11 @@ var spackle = function() {
                     }
                 }
             }
-        } finally{
+        } catch (error) {
             depth2--;
+            throw error;
         }
+        depth2--;
         if (hasInfinity) {
             return Infinity;
         }
@@ -13098,6 +13916,31 @@ var spackle = function() {
             sumOfSquares += scaled * scaled;
         }
         return max3 * Math.sqrt(sumOfSquares);
+    };
+    var mathHypot = function hypot(_value1, _value2) {
+        var count = arguments.length;
+        if (count > 3) return hypotMany(arguments);
+        var a = count > 0 ? +arguments[0] : 0;
+        var b = count > 1 ? +arguments[1] : 0;
+        var c = count > 2 ? +arguments[2] : 0;
+        if (a === Infinity || a === -Infinity || b === Infinity || b === -Infinity || c === Infinity || c === -Infinity) {
+            return Infinity;
+        }
+        if (a !== a || b !== b || c !== c) {
+            return NaN;
+        }
+        var x = a < 0 ? -a : a;
+        var y = b < 0 ? -b : b;
+        var z = c < 0 ? -c : c;
+        var max3 = x > y ? x : y;
+        if (z > max3) max3 = z;
+        if (max3 === 0) {
+            return 0;
+        }
+        var sx = x / max3;
+        var sy = y / max3;
+        var sz = z / max3;
+        return max3 * Math.sqrt(sx * sx + sy * sy + sz * sz);
     };
     // src/modules/es.math.imul.ts
     var isSupported127 = function isSupported127() {
@@ -13226,39 +14069,6 @@ var spackle = function() {
             carry = (v - r) / LIMB_BASE;
         }
     };
-    var addMagnitude = function addMagnitude(limbs, value) {
-        scratch3.setFloat64(0, Math.abs(value));
-        var hi = scratch3.getUint32(0);
-        var lo = scratch3.getUint32(4);
-        var biasedExp = hi >>> 20 & 2047;
-        var mantHi = hi & 1048575;
-        var mantissa;
-        var exp;
-        if (biasedExp === 0) {
-            mantissa = mantHi * 4294967296 + lo;
-            exp = -1074;
-        } else {
-            mantissa = (mantHi + 1048576) * 4294967296 + lo;
-            exp = biasedExp - 1075;
-        }
-        if (mantissa === 0) return;
-        var bit = exp + BIAS;
-        var limb = Math.floor(bit / LIMB_BITS);
-        var shift = bit % LIMB_BITS;
-        var scale = Math.pow(2, shift);
-        var c0 = mantissa % LIMB_BASE;
-        var c1 = Math.floor(mantissa / LIMB_BASE) % LIMB_BASE;
-        var c2 = Math.floor(mantissa / (LIMB_BASE * LIMB_BASE));
-        limbs[limb] += c0 * scale;
-        limbs[limb + 1] += c1 * scale;
-        if (c2 !== 0) limbs[limb + 2] += c2 * scale;
-    };
-    var compare = function compare(a, b) {
-        for(var i = LIMB_COUNT - 1; i >= 0; i--){
-            if (a[i] !== b[i]) return a[i] > b[i] ? 1 : -1;
-        }
-        return 0;
-    };
     var subtract = function subtract(a, b) {
         var borrow = 0;
         for(var i = 0; i < LIMB_COUNT; i++){
@@ -13271,14 +14081,6 @@ var spackle = function() {
             }
             a[i] = v;
         }
-    };
-    var anyBitBelow = function anyBitBelow(limbs, index) {
-        var limb = Math.floor(index / LIMB_BITS);
-        for(var i = 0; i < limb && i < LIMB_COUNT; i++){
-            if (limbs[i] !== 0) return 1;
-        }
-        if (limb < LIMB_COUNT && limbs[limb] % Math.pow(2, index % LIMB_BITS) !== 0) return 1;
-        return 0;
     };
     var bitAt = function bitAt(limbs, index) {
         var limb = Math.floor(index / LIMB_BITS);
@@ -13304,7 +14106,18 @@ var spackle = function() {
         var exp = low - BIAS;
         if (low > 0) {
             var roundBit = bitAt(limbs, low - 1);
-            var sticky = anyBitBelow(limbs, low - 1);
+            var sticky = 0;
+            var stickyIndex = low - 1;
+            var stickyLimb = Math.floor(stickyIndex / LIMB_BITS);
+            for(var i2 = 0; i2 < stickyLimb && i2 < LIMB_COUNT; i2++){
+                if (limbs[i2] !== 0) {
+                    sticky = 1;
+                    break;
+                }
+            }
+            if (sticky === 0 && stickyLimb < LIMB_COUNT && limbs[stickyLimb] % Math.pow(2, stickyIndex % LIMB_BITS) !== 0) {
+                sticky = 1;
+            }
             if (roundBit === 1 && (sticky === 1 || mantissa % 2 === 1)) {
                 mantissa += 1;
                 if (mantissa === 9007199254740992) {
@@ -13350,6 +14163,12 @@ var spackle = function() {
         if (!reentered) busy = false;
         return result;
     };
+    var closeQuietly2 = function closeQuietly2(iterator) {
+        try {
+            var ret = iterator.return;
+            if (typeof ret === "function") ret.call(iterator);
+        } catch (unused) {}
+    };
     var sumInto = function sumInto(items, iteratorKey4, positive, negative) {
         var count = 0;
         var sinceNormalize = 0;
@@ -13363,10 +14182,7 @@ var spackle = function() {
             if (step.done) break;
             var value = step.value;
             if (typeof value !== "number") {
-                try {
-                    var ret = iterator.return;
-                    if (typeof ret === "function") ret.call(iterator);
-                } catch (unused) {}
+                closeQuietly2(iterator);
                 throw new TypeError("Math.sumPrecise: every element must be a Number");
             }
             count++;
@@ -13390,7 +14206,33 @@ var spackle = function() {
                 continue;
             }
             allMinusZero = false;
-            addMagnitude(value > 0 ? positive : negative, value);
+            var limbs = value > 0 ? positive : negative;
+            scratch3.setFloat64(0, Math.abs(value));
+            var hi = scratch3.getUint32(0);
+            var lo = scratch3.getUint32(4);
+            var biasedExp = hi >>> 20 & 2047;
+            var mantHi = hi & 1048575;
+            var mantissa = void 0;
+            var exp = void 0;
+            if (biasedExp === 0) {
+                mantissa = mantHi * 4294967296 + lo;
+                exp = -1074;
+            } else {
+                mantissa = (mantHi + 1048576) * 4294967296 + lo;
+                exp = biasedExp - 1075;
+            }
+            if (mantissa !== 0) {
+                var bit = exp + BIAS;
+                var limb = Math.floor(bit / LIMB_BITS);
+                var shift = bit % LIMB_BITS;
+                var scale = Math.pow(2, shift);
+                var c0 = mantissa % LIMB_BASE;
+                var c1 = Math.floor(mantissa / LIMB_BASE) % LIMB_BASE;
+                var c2 = Math.floor(mantissa / (LIMB_BASE * LIMB_BASE));
+                limbs[limb] += c0 * scale;
+                limbs[limb + 1] += c1 * scale;
+                if (c2 !== 0) limbs[limb + 2] += c2 * scale;
+            }
             if (++sinceNormalize >= 32) {
                 normalize(positive);
                 normalize(negative);
@@ -13404,7 +14246,13 @@ var spackle = function() {
         if (count === 0 || allMinusZero) return -0;
         normalize(positive);
         normalize(negative);
-        var order = compare(positive, negative);
+        var order = 0;
+        for(var i = LIMB_COUNT - 1; i >= 0; i--){
+            if (positive[i] !== negative[i]) {
+                order = positive[i] > negative[i] ? 1 : -1;
+                break;
+            }
+        }
         if (order === 0) return 0;
         if (order > 0) {
             subtract(positive, negative);
@@ -13771,19 +14619,6 @@ var spackle = function() {
     var pow2 = function pow21(x, n, acc) {
         return n === 0 ? acc : n % 2 === 1 ? pow2(x, n - 1, acc * x) : pow2(x * x, n / 2, acc);
     };
-    var log = function log(x) {
-        var n = 0;
-        var x2 = x;
-        while(x2 >= 4096){
-            n += 12;
-            x2 /= 4096;
-        }
-        while(x2 >= 2){
-            n += 1;
-            x2 /= 2;
-        }
-        return n;
-    };
     var multiply = function multiply(data, n, c) {
         var index = -1;
         var c2 = c;
@@ -13841,7 +14676,17 @@ var spackle = function() {
             number = -number;
         }
         if (number > 1e-21) {
-            e = log(number * pow2(2, 69, 1)) - 69;
+            var x2 = number * pow2(2, 69, 1);
+            e = 0;
+            while(x2 >= 4096){
+                e += 12;
+                x2 /= 4096;
+            }
+            while(x2 >= 2){
+                e += 1;
+                x2 /= 2;
+            }
+            e -= 69;
             z = e < 0 ? number * pow2(2, -e, 1) : number / pow2(2, e, 1);
             z *= 4503599627370496;
             e = 52 - e;
@@ -14032,11 +14877,94 @@ var spackle = function() {
         return synthetic;
     };
     var IteratorPrototype2 = getIteratorPrototype();
-    var isSupported152 = function isSupported152() {
-        try {
-            if (!iteratorSymbol || !IteratorPrototype2) {
-                return true;
+    var brokenHelpers = null;
+    var getBrokenHelpers = function getBrokenHelpers() {
+        var _loop = function(i) {
+            var name = names[i];
+            var method = proto2 && proto2[name];
+            if (typeof method !== "function") return "continue";
+            var limit = name === "take" || name === "drop";
+            if (limit || name === "map" || name === "filter" || name === "flatMap") {
+                var threw = false;
+                try {
+                    method.call({
+                        next: null
+                    }, name === "take" ? 1 : name === "drop" ? 0 : function() {}).next();
+                } catch (e) {
+                    threw = true;
+                }
+                if (!threw) {
+                    brokenHelpers[name] = true;
+                    return "continue";
+                }
             }
+            var closed = false;
+            try {
+                method.call({
+                    next: function next() {
+                        return {
+                            done: true
+                        };
+                    },
+                    "return": function() {
+                        closed = true;
+                    }
+                }, -1);
+            } catch (e) {
+                if (!(e instanceof (limit ? RangeError : TypeError))) closed = false;
+            }
+            if (!closed) {
+                brokenHelpers[name] = true;
+                return "continue";
+            }
+            if (limit) {
+                var ranged = false;
+                try {
+                    method.call({
+                        next: function next() {
+                            return {
+                                done: true
+                            };
+                        }
+                    }, 9007199254740992);
+                } catch (e) {
+                    ranged = e instanceof RangeError;
+                }
+                if (!ranged) brokenHelpers[name] = true;
+            }
+            if (name === "reduce") {
+                try {
+                    method.call([].keys(), function() {}, void 0);
+                } catch (e) {
+                    brokenHelpers[name] = true;
+                }
+            }
+        };
+        if (brokenHelpers) return brokenHelpers;
+        brokenHelpers = {};
+        var proto2 = IteratorPrototype2;
+        var names = [
+            "map",
+            "filter",
+            "take",
+            "drop",
+            "flatMap",
+            "forEach",
+            "reduce",
+            "some",
+            "every",
+            "find"
+        ];
+        for(var i = 0; i < names.length; i++)_loop(i);
+        return brokenHelpers;
+    };
+    var anyHelperBroken = function anyHelperBroken() {
+        var broken = getBrokenHelpers();
+        for(var name in broken)if (broken[name]) return true;
+        return false;
+    };
+    var helpersPresent = function helpersPresent() {
+        try {
             return typeof globalThis.Iterator === "function" && typeof IteratorPrototype2.map === "function" && typeof IteratorPrototype2.filter === "function" && typeof IteratorPrototype2.take === "function" && typeof IteratorPrototype2.drop === "function" && typeof IteratorPrototype2.flatMap === "function" && typeof IteratorPrototype2.reduce === "function" && typeof IteratorPrototype2.toArray === "function" && typeof IteratorPrototype2.forEach === "function" && typeof IteratorPrototype2.some === "function" && typeof IteratorPrototype2.every === "function" && typeof IteratorPrototype2.find === "function";
         } catch (unused) {
             return false;
@@ -14854,6 +15782,74 @@ var spackle = function() {
             setProtoOf(proto2, IteratorPrototype2);
         }
     };
+    var installHelpers = function installHelpers() {
+        var methods2 = [
+            [
+                "map",
+                iteratorMap
+            ],
+            [
+                "filter",
+                iteratorFilter
+            ],
+            [
+                "take",
+                iteratorTake
+            ],
+            [
+                "drop",
+                iteratorDrop
+            ],
+            [
+                "flatMap",
+                iteratorFlatMap
+            ],
+            [
+                "toArray",
+                iteratorToArray
+            ],
+            [
+                "forEach",
+                iteratorForEach
+            ],
+            [
+                "reduce",
+                iteratorReduce
+            ],
+            [
+                "some",
+                iteratorSome
+            ],
+            [
+                "every",
+                iteratorEvery
+            ],
+            [
+                "find",
+                iteratorFind
+            ]
+        ];
+        for(var i = 0; i < methods2.length; i++){
+            var name = methods2[i][0];
+            if (!IteratorPrototype2[name] || getBrokenHelpers()[name]) {
+                try {
+                    Object.defineProperty(methods2[i][1], "name", {
+                        value: name,
+                        configurable: true
+                    });
+                } catch (e) {}
+                Object.defineProperty(IteratorPrototype2, name, {
+                    value: methods2[i][1],
+                    writable: true,
+                    enumerable: false,
+                    configurable: true
+                });
+                Object.defineProperty(IteratorPrototype2[name], "__polyfilled", {
+                    value: true
+                });
+            }
+        }
+    };
     var installIteratorPolyfill = function installIteratorPolyfill() {
         var tagKey9 = typeof Symbol !== "undefined" ? Symbol.toStringTag : void 0;
         if (IteratorPrototype2 && tagKey9 && !Object.prototype.hasOwnProperty.call(IteratorPrototype2, tagKey9)) {
@@ -14899,7 +15895,7 @@ var spackle = function() {
                 });
             } catch (e) {}
         }
-        if (!isSupported152() && IteratorPrototype2) {
+        if (IteratorPrototype2 && iteratorSymbol && !helpersPresent()) {
             var Iterator = function Iterator() {
                 if (this === void 0 || this === null || typeof this !== "object") {
                     throw new TypeError("Constructor Iterator requires 'new'");
@@ -14981,72 +15977,7 @@ var spackle = function() {
                     value: true
                 });
             }
-            var methods2 = [
-                [
-                    "map",
-                    iteratorMap
-                ],
-                [
-                    "filter",
-                    iteratorFilter
-                ],
-                [
-                    "take",
-                    iteratorTake
-                ],
-                [
-                    "drop",
-                    iteratorDrop
-                ],
-                [
-                    "flatMap",
-                    iteratorFlatMap
-                ],
-                [
-                    "toArray",
-                    iteratorToArray
-                ],
-                [
-                    "forEach",
-                    iteratorForEach
-                ],
-                [
-                    "reduce",
-                    iteratorReduce
-                ],
-                [
-                    "some",
-                    iteratorSome
-                ],
-                [
-                    "every",
-                    iteratorEvery
-                ],
-                [
-                    "find",
-                    iteratorFind
-                ]
-            ];
-            for(var i1 = 0; i1 < methods2.length; i1++){
-                var name = methods2[i1][0];
-                if (!IteratorPrototype2[name]) {
-                    try {
-                        Object.defineProperty(methods2[i1][1], "name", {
-                            value: name,
-                            configurable: true
-                        });
-                    } catch (e) {}
-                    Object.defineProperty(IteratorPrototype2, name, {
-                        value: methods2[i1][1],
-                        writable: true,
-                        enumerable: false,
-                        configurable: true
-                    });
-                    Object.defineProperty(IteratorPrototype2[name], "__polyfilled", {
-                        value: true
-                    });
-                }
-            }
+            installHelpers();
             var target = typeof window !== "undefined" ? window : globalThis;
             if (!target.Iterator) {
                 Object.defineProperty(target, "Iterator", {
@@ -15065,6 +15996,8 @@ var spackle = function() {
                     value: true
                 });
             }
+        } else if (IteratorPrototype2 && anyHelperBroken()) {
+            installHelpers();
         }
     };
     var installIterator = function installIterator() {
@@ -15072,7 +16005,7 @@ var spackle = function() {
         installIteratorExtensionsOnNative();
     };
     // src/modules/es.promise.all-settled.ts
-    var isSupported153 = function isSupported153() {
+    var isSupported152 = function isSupported152() {
         try {
             return typeof Promise !== "undefined" && typeof Promise.allSettled === "function";
         } catch (unused) {
@@ -15083,9 +16016,6 @@ var spackle = function() {
         return value !== null && (typeof value === "object" || typeof value === "function");
     };
     var hasOwn11 = Object.prototype.hasOwnProperty;
-    var isConstructor6 = function isConstructor6(C) {
-        return typeof C === "function" && (hasOwn11.call(C, "prototype") || /^bound /.test(C.name || ""));
-    };
     var arrowWrap = null;
     try {
         arrowWrap = new Function("f", "return (x) => f(x)");
@@ -15095,56 +16025,11 @@ var spackle = function() {
             return fn(x);
         };
     };
-    var newPromiseCapability2 = function newPromiseCapability2(C) {
-        if (!isConstructor6(C)) throw new TypeError("Promise capability: not a constructor");
-        var capability = {
-            promise: void 0,
-            resolve: void 0,
-            reject: void 0
-        };
-        var executor = function executor(resolve, reject) {
-            if (capability.resolve !== void 0) throw new TypeError("Promise executor has already been invoked with non-undefined arguments");
-            if (capability.reject !== void 0) throw new TypeError("Promise executor has already been invoked with non-undefined arguments");
-            capability.resolve = resolve;
-            capability.reject = reject;
-        };
-        capability.promise = new C(executor);
-        if (typeof capability.resolve !== "function") throw new TypeError("Promise resolve function is not callable");
-        if (typeof capability.reject !== "function") throw new TypeError("Promise reject function is not callable");
-        return capability;
-    };
     var closeIterator7 = function closeIterator7(iterator) {
         try {
             var ret = iterator["return"];
             if (ret !== void 0 && ret !== null) ret.call(iterator);
         } catch (e) {}
-    };
-    var getIteratorRecord = function getIteratorRecord(iterable) {
-        var key = typeof Symbol !== "undefined" ? Symbol.iterator : void 0;
-        if (key) {
-            if (iterable === null || iterable === void 0) throw new TypeError("object is not iterable");
-            var method = iterable[key];
-            if (typeof method !== "function") throw new TypeError("object is not iterable");
-            var iterator = method.call(iterable);
-            if (!isObject7(iterator)) throw new TypeError("Result of the Symbol.iterator method is not an object");
-            return {
-                iterator: iterator,
-                next: iterator.next,
-                arrayLike: null,
-                index: 0,
-                done: false
-            };
-        }
-        if (iterable === null || iterable === void 0 || typeof iterable.length !== "number") {
-            throw new TypeError("object is not iterable");
-        }
-        return {
-            iterator: null,
-            next: null,
-            arrayLike: iterable,
-            index: 0,
-            done: false
-        };
     };
     var DONE = {};
     var stepValue = function stepValue(record) {
@@ -15214,12 +16099,53 @@ var spackle = function() {
     };
     var promiseAllSettled = function allSettled(iterable) {
         var C = this;
-        var capability = newPromiseCapability2(C);
+        if (!(typeof C === "function" && (hasOwn11.call(C, "prototype") || /^bound /.test(C.name || "")))) {
+            throw new TypeError("Promise capability: not a constructor");
+        }
+        var capability = {
+            promise: void 0,
+            resolve: void 0,
+            reject: void 0
+        };
+        var executor = function executor(resolve, reject) {
+            if (capability.resolve !== void 0) throw new TypeError("Promise executor has already been invoked with non-undefined arguments");
+            if (capability.reject !== void 0) throw new TypeError("Promise executor has already been invoked with non-undefined arguments");
+            capability.resolve = resolve;
+            capability.reject = reject;
+        };
+        capability.promise = new C(executor);
+        if (typeof capability.resolve !== "function") throw new TypeError("Promise resolve function is not callable");
+        if (typeof capability.reject !== "function") throw new TypeError("Promise reject function is not callable");
         var record = null;
         try {
             var promiseResolve2 = C.resolve;
             if (typeof promiseResolve2 !== "function") throw new TypeError("Promise resolve is not callable");
-            record = getIteratorRecord(iterable);
+            var iteratorKey4 = typeof Symbol !== "undefined" ? Symbol.iterator : void 0;
+            if (iteratorKey4) {
+                if (iterable === null || iterable === void 0) throw new TypeError("object is not iterable");
+                var method = iterable[iteratorKey4];
+                if (typeof method !== "function") throw new TypeError("object is not iterable");
+                var iterator = method.call(iterable);
+                if (!isObject7(iterator)) throw new TypeError("Result of the Symbol.iterator method is not an object");
+                record = {
+                    iterator: iterator,
+                    next: iterator.next,
+                    arrayLike: null,
+                    index: 0,
+                    done: false
+                };
+            } else {
+                if (iterable === null || iterable === void 0 || typeof iterable.length !== "number") {
+                    throw new TypeError("object is not iterable");
+                }
+                record = {
+                    iterator: null,
+                    next: null,
+                    arrayLike: iterable,
+                    index: 0,
+                    done: false
+                };
+            }
             var state = {
                 values: /* @__PURE__ */ Object.create(null),
                 count: 0,
@@ -15245,7 +16171,7 @@ var spackle = function() {
         }
     };
     // src/modules/es.promise.any.ts
-    var isSupported154 = function isSupported154() {
+    var isSupported153 = function isSupported153() {
         try {
             return typeof Promise !== "undefined" && typeof Promise.any === "function";
         } catch (unused) {
@@ -15256,9 +16182,6 @@ var spackle = function() {
         return value !== null && (typeof value === "object" || typeof value === "function");
     };
     var hasOwn12 = Object.prototype.hasOwnProperty;
-    var isConstructor7 = function isConstructor7(C) {
-        return typeof C === "function" && (hasOwn12.call(C, "prototype") || /^bound /.test(C.name || ""));
-    };
     var arrowWrap2 = null;
     try {
         arrowWrap2 = new Function("f", "return (x) => f(x)");
@@ -15268,56 +16191,11 @@ var spackle = function() {
             return fn(x);
         };
     };
-    var newPromiseCapability3 = function newPromiseCapability3(C) {
-        if (!isConstructor7(C)) throw new TypeError("Promise capability: not a constructor");
-        var capability = {
-            promise: void 0,
-            resolve: void 0,
-            reject: void 0
-        };
-        var executor = function executor(resolve, reject) {
-            if (capability.resolve !== void 0) throw new TypeError("Promise executor has already been invoked with non-undefined arguments");
-            if (capability.reject !== void 0) throw new TypeError("Promise executor has already been invoked with non-undefined arguments");
-            capability.resolve = resolve;
-            capability.reject = reject;
-        };
-        capability.promise = new C(executor);
-        if (typeof capability.resolve !== "function") throw new TypeError("Promise resolve function is not callable");
-        if (typeof capability.reject !== "function") throw new TypeError("Promise reject function is not callable");
-        return capability;
-    };
     var closeIterator8 = function closeIterator8(iterator) {
         try {
             var ret = iterator["return"];
             if (ret !== void 0 && ret !== null) ret.call(iterator);
         } catch (e) {}
-    };
-    var getIteratorRecord2 = function getIteratorRecord2(iterable) {
-        var key = typeof Symbol !== "undefined" ? Symbol.iterator : void 0;
-        if (key) {
-            if (iterable === null || iterable === void 0) throw new TypeError("object is not iterable");
-            var method = iterable[key];
-            if (typeof method !== "function") throw new TypeError("object is not iterable");
-            var iterator = method.call(iterable);
-            if (!isObject8(iterator)) throw new TypeError("Result of the Symbol.iterator method is not an object");
-            return {
-                iterator: iterator,
-                next: iterator.next,
-                arrayLike: null,
-                index: 0,
-                done: false
-            };
-        }
-        if (iterable === null || iterable === void 0 || typeof iterable.length !== "number") {
-            throw new TypeError("object is not iterable");
-        }
-        return {
-            iterator: null,
-            next: null,
-            arrayLike: iterable,
-            index: 0,
-            done: false
-        };
     };
     var DONE2 = {};
     var stepValue2 = function stepValue2(record) {
@@ -15392,12 +16270,53 @@ var spackle = function() {
     };
     var promiseAny = function any(iterable) {
         var C = this;
-        var capability = newPromiseCapability3(C);
+        if (!(typeof C === "function" && (hasOwn12.call(C, "prototype") || /^bound /.test(C.name || "")))) {
+            throw new TypeError("Promise capability: not a constructor");
+        }
+        var capability = {
+            promise: void 0,
+            resolve: void 0,
+            reject: void 0
+        };
+        var executor = function executor(resolve, reject) {
+            if (capability.resolve !== void 0) throw new TypeError("Promise executor has already been invoked with non-undefined arguments");
+            if (capability.reject !== void 0) throw new TypeError("Promise executor has already been invoked with non-undefined arguments");
+            capability.resolve = resolve;
+            capability.reject = reject;
+        };
+        capability.promise = new C(executor);
+        if (typeof capability.resolve !== "function") throw new TypeError("Promise resolve function is not callable");
+        if (typeof capability.reject !== "function") throw new TypeError("Promise reject function is not callable");
         var record = null;
         try {
             var promiseResolve2 = C.resolve;
             if (typeof promiseResolve2 !== "function") throw new TypeError("Promise resolve is not callable");
-            record = getIteratorRecord2(iterable);
+            var iteratorKey4 = typeof Symbol !== "undefined" ? Symbol.iterator : void 0;
+            if (iteratorKey4) {
+                if (iterable === null || iterable === void 0) throw new TypeError("object is not iterable");
+                var method = iterable[iteratorKey4];
+                if (typeof method !== "function") throw new TypeError("object is not iterable");
+                var iterator = method.call(iterable);
+                if (!isObject8(iterator)) throw new TypeError("Result of the Symbol.iterator method is not an object");
+                record = {
+                    iterator: iterator,
+                    next: iterator.next,
+                    arrayLike: null,
+                    index: 0,
+                    done: false
+                };
+            } else {
+                if (iterable === null || iterable === void 0 || typeof iterable.length !== "number") {
+                    throw new TypeError("object is not iterable");
+                }
+                record = {
+                    iterator: null,
+                    next: null,
+                    arrayLike: iterable,
+                    index: 0,
+                    done: false
+                };
+            }
             var state = {
                 errors: /* @__PURE__ */ Object.create(null),
                 count: 0,
@@ -15423,7 +16342,7 @@ var spackle = function() {
         }
     };
     // src/modules/es.promise.finally.ts
-    var isSupported155 = function isSupported155() {
+    var isSupported154 = function isSupported154() {
         try {
             if (typeof Promise === "undefined" || typeof Promise.prototype.finally !== "function") return false;
             Promise.prototype.finally.call({
@@ -15438,9 +16357,6 @@ var spackle = function() {
         return value !== null && (typeof value === "object" || typeof value === "function");
     };
     var hasOwn13 = Object.prototype.hasOwnProperty;
-    var isConstructor8 = function isConstructor8(C) {
-        return typeof C === "function" && (hasOwn13.call(C, "prototype") || /^bound /.test(C.name || ""));
-    };
     var arrowWrap3 = null;
     try {
         arrowWrap3 = new Function("f", "return (x) => f(x)");
@@ -15472,7 +16388,7 @@ var spackle = function() {
             var speciesKey = typeof Symbol !== "undefined" ? Symbol.species : void 0;
             var species = speciesKey ? C[speciesKey] : void 0;
             if (species === void 0 || species === null) C = Default;
-            else if (isConstructor8(species)) C = species;
+            else if (typeof species === "function" && (hasOwn13.call(species, "prototype") || /^bound /.test(species.name || ""))) C = species;
             else throw new TypeError("Promise @@species is not a constructor");
         }
         if (typeof onFinally !== "function") {
@@ -15493,7 +16409,7 @@ var spackle = function() {
         return promise.then(thenFinally, catchFinally);
     };
     // src/modules/es.promise.try.ts
-    var isSupported156 = function isSupported156() {
+    var isSupported155 = function isSupported155() {
         try {
             if (typeof Promise === "undefined" || typeof Promise.try !== "function") return false;
             var argument;
@@ -15510,15 +16426,10 @@ var spackle = function() {
         return value !== null && (typeof value === "object" || typeof value === "function");
     };
     var hasOwn14 = Object.prototype.hasOwnProperty;
-    var isConstructor9 = function isConstructor9(C) {
-        return typeof C === "function" && (hasOwn14.call(C, "prototype") || /^bound /.test(C.name || ""));
-    };
-    var arrowWrap4 = null;
-    try {
-        arrowWrap4 = new Function("f", "return (x) => f(x)");
-    } catch (e) {}
-    var newPromiseCapability4 = function newPromiseCapability4(C) {
-        if (!isConstructor9(C)) throw new TypeError("Promise capability: not a constructor");
+    var newPromiseCapability2 = function newPromiseCapability2(C) {
+        if (!(typeof C === "function" && (hasOwn14.call(C, "prototype") || /^bound /.test(C.name || "")))) {
+            throw new TypeError("Promise capability: not a constructor");
+        }
         var capability = {
             promise: void 0,
             resolve: void 0,
@@ -15550,17 +16461,17 @@ var spackle = function() {
                 value = callbackfn.apply(void 0, args);
             }
         } catch (error) {
-            var rejected = newPromiseCapability4(C);
+            var rejected = newPromiseCapability2(C);
             rejected.reject(error);
             return rejected.promise;
         }
         if (isObject10(value) && value.constructor === C) return value;
-        var capability = newPromiseCapability4(C);
+        var capability = newPromiseCapability2(C);
         capability.resolve(value);
         return capability.promise;
     };
     // src/modules/es.promise.with-resolvers.ts
-    var isSupported157 = function isSupported157() {
+    var isSupported156 = function isSupported156() {
         try {
             return typeof Promise !== "undefined" && typeof Promise.withResolvers === "function";
         } catch (unused) {
@@ -15568,15 +16479,11 @@ var spackle = function() {
         }
     };
     var hasOwn15 = Object.prototype.hasOwnProperty;
-    var isConstructor10 = function isConstructor10(C) {
-        return typeof C === "function" && (hasOwn15.call(C, "prototype") || /^bound /.test(C.name || ""));
-    };
-    var arrowWrap5 = null;
-    try {
-        arrowWrap5 = new Function("f", "return (x) => f(x)");
-    } catch (e) {}
-    var newPromiseCapability5 = function newPromiseCapability5(C) {
-        if (!isConstructor10(C)) throw new TypeError("Promise capability: not a constructor");
+    var promiseWithResolvers = function withResolvers() {
+        var C = this;
+        if (!(typeof C === "function" && (hasOwn15.call(C, "prototype") || /^bound /.test(C.name || "")))) {
+            throw new TypeError("Promise capability: not a constructor");
+        }
         var capability = {
             promise: void 0,
             resolve: void 0,
@@ -15591,10 +16498,6 @@ var spackle = function() {
         capability.promise = new C(executor);
         if (typeof capability.resolve !== "function") throw new TypeError("Promise resolve function is not callable");
         if (typeof capability.reject !== "function") throw new TypeError("Promise reject function is not callable");
-        return capability;
-    };
-    var promiseWithResolvers = function withResolvers() {
-        var capability = newPromiseCapability5(this);
         return {
             promise: capability.promise,
             resolve: capability.resolve,
@@ -15602,7 +16505,7 @@ var spackle = function() {
         };
     };
     // src/modules/install-dom-exception.ts
-    var isSupported158 = function isSupported158() {
+    var isSupported157 = function isSupported157() {
         try {
             var exception = new DOMException("test");
             return exception instanceof DOMException;
@@ -15788,7 +16691,7 @@ var spackle = function() {
         define(window, "DOMException", DOMExceptionPolyfill);
     };
     // src/modules/install-set-immediate.ts
-    var isSupported159 = function isSupported159() {
+    var isSupported158 = function isSupported158() {
         try {
             return typeof window.setImmediate === "function";
         } catch (unused) {
@@ -15831,7 +16734,7 @@ var spackle = function() {
     };
     var makePost = function makePost() {
         var w = window;
-        if (typeof w.MessageChannel === "function") {
+        if (w.MessageChannel && (typeof w.MessageChannel === "function" || typeof w.MessageChannel === "object")) {
             var channel = new w.MessageChannel();
             channel.port1.onmessage = runNext;
             return function() {
@@ -15875,7 +16778,7 @@ var spackle = function() {
         define(window, "clearImmediate", clearImmediate);
     };
     // src/modules/web.atob.ts
-    var isSupported160 = function isSupported160() {
+    var isSupported159 = function isSupported159() {
         try {
             if (typeof atob !== "function") {
                 return false;
@@ -15896,23 +16799,24 @@ var spackle = function() {
         }
     };
     var ALPHABET = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-    var invalidCharacterError = function invalidCharacterError() {
-        var message = "Failed to execute 'atob': The string to be decoded is not correctly encoded.";
-        if (typeof DOMException === "function") {
-            return new DOMException(message, "InvalidCharacterError");
-        }
-        var error = new Error(message);
-        error.name = "InvalidCharacterError";
-        return error;
-    };
+    var RE_WHITESPACE = /[\t\n\f\r ]/g;
+    var RE_PADDING = /==?$/;
+    var RE_NOT_BASE64 = /[^+/0-9A-Za-z]/;
     var atobPolyfill = function atobPolyfill(data) {
         if (arguments.length === 0) throw new TypeError("Failed to execute 'atob' on 'Window': 1 argument required, but only 0 present.");
-        var input = String(data).replace(/[\t\n\f\r ]/g, "");
+        var input = String(data).replace(RE_WHITESPACE, "");
         if (input.length % 4 === 0) {
-            input = input.replace(/==?$/, "");
+            input = input.replace(RE_PADDING, "");
         }
-        if (input.length % 4 === 1 || /[^+/0-9A-Za-z]/.test(input)) {
-            throw invalidCharacterError();
+        if (input.length % 4 === 1 || RE_NOT_BASE64.test(input)) {
+            var message = "Failed to execute 'atob': The string to be decoded is not correctly encoded.";
+            if (typeof DOMException === "function") {
+                throw new DOMException(message, "InvalidCharacterError");
+            } else {
+                var error = new Error(message);
+                error.name = "InvalidCharacterError";
+                throw error;
+            }
         }
         var output = "";
         var bitStorage = 0;
@@ -15927,7 +16831,7 @@ var spackle = function() {
         return output;
     };
     // src/modules/web.queue-microtask.ts
-    var isSupported161 = function isSupported161() {
+    var isSupported160 = function isSupported160() {
         try {
             var qm = window.queueMicrotask;
             return typeof qm === "function" && qm.length === 1 && /\[native code\]/.test(Function.prototype.toString.call(qm));
@@ -15968,35 +16872,32 @@ var spackle = function() {
         queue.length = 0;
         head2 = 0;
     };
-    var wake = function wake() {
-        if (fast === null) {
-            var w = window;
-            var MO = w.MutationObserver || w.WebKitMutationObserver;
-            var ua = w.navigator && w.navigator.userAgent || "";
-            var brokenObserver = /(?:ipad|iphone|ipod).*applewebkit/i.test(ua) || /web0s(?!.*chrome)/i.test(ua);
-            if (typeof nativeThen === "function") {
-                var resolved = NativePromise.resolve(void 0);
-                resolved.constructor = NativePromise;
-                fast = function fast() {
-                    nativeThen.call(resolved, drain);
-                };
-            } else if (MO && w.document && !brokenObserver) {
-                var toggle = true;
-                var node = w.document.createTextNode("");
-                new MO(drain).observe(node, {
-                    characterData: true
-                });
-                fast = function fast() {
-                    toggle = !toggle;
-                    node.data = toggle ? "1" : "0";
-                };
-            } else {
-                fast = function fast() {
-                    setTimeout(drain, 0);
-                };
-            }
+    var makeFast = function makeFast() {
+        var w = window;
+        var MO = w.MutationObserver || w.WebKitMutationObserver;
+        var ua = w.navigator && w.navigator.userAgent || "";
+        var brokenObserver = /(?:ipad|iphone|ipod).*applewebkit/i.test(ua) || /web0s(?!.*chrome)/i.test(ua);
+        if (typeof nativeThen === "function") {
+            var resolved = NativePromise.resolve(void 0);
+            resolved.constructor = NativePromise;
+            fast = function fast() {
+                nativeThen.call(resolved, drain);
+            };
+        } else if (MO && w.document && !brokenObserver) {
+            var toggle = true;
+            var node = w.document.createTextNode("");
+            new MO(drain).observe(node, {
+                characterData: true
+            });
+            fast = function fast() {
+                toggle = !toggle;
+                node.data = toggle ? "1" : "0";
+            };
+        } else {
+            fast = function fast() {
+                setTimeout(drain, 0);
+            };
         }
-        fast();
     };
     var queueMicrotask = function queueMicrotask(callback) {
         if (typeof callback !== "function") {
@@ -16007,10 +16908,11 @@ var spackle = function() {
             return;
         }
         scheduled = true;
-        wake();
+        if (fast === null) makeFast();
+        fast();
     };
     // src/modules/web.self.ts
-    var isSupported162 = function isSupported162() {
+    var isSupported161 = function isSupported161() {
         try {
             return typeof window === "undefined" || window.self === window;
         } catch (unused) {
@@ -16025,7 +16927,7 @@ var spackle = function() {
         }
     };
     // src/modules/web.url-search-params.delete.ts
-    var isSupported163 = function isSupported163() {
+    var isSupported162 = function isSupported162() {
         try {
             if (typeof URLSearchParams === "undefined") {
                 return true;
@@ -16080,7 +16982,7 @@ var spackle = function() {
         }
     };
     // src/modules/web.url-search-params.has.ts
-    var isSupported164 = function isSupported164() {
+    var isSupported163 = function isSupported163() {
         try {
             if (typeof URLSearchParams === "undefined") {
                 return true;
@@ -16120,7 +17022,7 @@ var spackle = function() {
         }
     };
     // src/modules/web.url-search-params.size.ts
-    var isSupported165 = function isSupported165() {
+    var isSupported164 = function isSupported164() {
         try {
             if (typeof URLSearchParams === "undefined") {
                 return true;
@@ -16143,7 +17045,7 @@ var spackle = function() {
         }
     };
     // src/modules/web.url.can-parse.ts
-    var isSupported166 = function isSupported166() {
+    var isSupported165 = function isSupported165() {
         try {
             if (typeof URL === "undefined") return true;
             var canParse4 = URL.canParse;
@@ -16173,7 +17075,7 @@ var spackle = function() {
         }
     };
     // src/modules/web.url.parse.ts
-    var isSupported167 = function isSupported167() {
+    var isSupported166 = function isSupported166() {
         try {
             return typeof URL === "undefined" || typeof URL.parse === "function";
         } catch (unused) {
@@ -16188,7 +17090,7 @@ var spackle = function() {
         }
     };
     // src/modules/web.url.to-json.ts
-    var isSupported168 = function isSupported168() {
+    var isSupported167 = function isSupported167() {
         try {
             return typeof URL === "undefined" || !URL.prototype || typeof URL.prototype.toJSON === "function";
         } catch (unused) {
@@ -16199,7 +17101,7 @@ var spackle = function() {
         return this.href;
     };
     // src/modules/install-reflect.ts
-    var isSupported169 = function isSupported169() {
+    var isSupported168 = function isSupported168() {
         try {
             var Native = window.Reflect;
             return typeof Native !== "undefined";
@@ -16254,7 +17156,7 @@ var spackle = function() {
         for(var i = 0; i < length; i++)list[i] = argumentsList[i];
         return list;
     };
-    var isConstructor11 = function isConstructor11(C) {
+    var isConstructor6 = function isConstructor6(C) {
         return typeof C === "function" && (hasOwn17.call(C, "prototype") || /^bound /.test(C.name || ""));
     };
     var nativeCodeRe = /\[native code\]/;
@@ -16336,9 +17238,9 @@ var spackle = function() {
         },
         // Declared (target, argumentsList) for the spec length of 2; newTarget from arguments.
         construct: function construct(target, argumentsList) {
-            if (!isConstructor11(target)) throw new TypeError("Reflect.construct target is not a constructor");
+            if (!isConstructor6(target)) throw new TypeError("Reflect.construct target is not a constructor");
             var newTarget = arguments.length > 2 ? arguments[2] : target;
-            if (!isConstructor11(newTarget)) throw new TypeError("Reflect.construct newTarget is not a constructor");
+            if (!isConstructor6(newTarget)) throw new TypeError("Reflect.construct newTarget is not a constructor");
             var args = listFromArrayLike(argumentsList);
             if (newTarget === target || nativeCodeRe.test(fnToString.call(target))) {
                 var boundArgs = [
@@ -16797,7 +17699,7 @@ var spackle = function() {
         }
     };
     // src/modules/es.string.iterator.ts
-    var isSupported170 = function isSupported170() {
+    var isSupported169 = function isSupported169() {
         try {
             return typeof Symbol === "undefined" || !Symbol.iterator || typeof String.prototype[Symbol.iterator] === "function";
         } catch (unused) {
@@ -17025,12 +17927,19 @@ var spackle = function() {
         var iteratorKey4 = typeof Symbol !== "undefined" ? Symbol.iterator : void 0;
         var arrayValues3 = Array.prototype.values;
         if (iteratorKey4 && (!proto2[iteratorKey4] || arrayValues3 && arrayValues3.__polyfilled === true && proto2[iteratorKey4] !== arrayValues3)) {
-            Object.defineProperty(proto2, iteratorKey4, {
-                value: typeof arrayValues3 === "function" ? arrayValues3 : proto2.values || domCollectionValues,
-                writable: true,
-                enumerable: false,
-                configurable: true
-            });
+            var value = typeof arrayValues3 === "function" ? arrayValues3 : proto2.values || domCollectionValues;
+            try {
+                Object.defineProperty(proto2, iteratorKey4, {
+                    value: value,
+                    writable: true,
+                    enumerable: false,
+                    configurable: true
+                });
+            } catch (e) {
+                try {
+                    proto2[iteratorKey4] = value;
+                } catch (e2) {}
+            }
         }
     };
     var install38 = function install38() {
@@ -17041,11 +17950,11 @@ var spackle = function() {
     // src/install-polyfills.ts
     var installPolyfills = function installPolyfills() {
         if (!isSupported4()) install2();
-        if (!isSupported5()) install3();
+        install3();
         install4();
         install5();
         install6();
-        if (!isSupported161()) define(window, "queueMicrotask", queueMicrotask);
+        if (!isSupported160()) define(window, "queueMicrotask", queueMicrotask);
         if (!isSupported7()) install7();
         installDisposable();
         if (!isSupported8()) install8();
@@ -17086,7 +17995,7 @@ var spackle = function() {
         if (!isSupported41()) define(Object, "seal", objectSeal);
         if (!isSupported42()) define(Object, "setPrototypeOf", objectSetPrototypeOf);
         if (!isSupported43()) define(Object, "values", objectValues);
-        if (!isSupported169()) installReflect();
+        if (!isSupported168()) installReflect();
         if (!isSupported44()) install13();
         if (!isSupported45()) define(Array.prototype, "at", arrayAt);
         if (!isSupported46()) define(Array.prototype, "concat", arrayConcat);
@@ -17126,7 +18035,7 @@ var spackle = function() {
         if (!isSupported79()) install18();
         if (!isSupported80()) define(Array.prototype, "unshift", arrayUnshift);
         if (!isSupported81()) define(Array.prototype, "with", arrayWith);
-        if (!isSupported170()) install36();
+        if (!isSupported169()) install36();
         if (!isSupported82()) install19();
         if (!isSupported83()) install20();
         if (!isSupported84()) define(RegExp, "escape", regExpEscape);
@@ -17139,16 +18048,28 @@ var spackle = function() {
         if (!isSupported91()) define(String, "fromCodePoint", stringFromCodePoint);
         if (!isSupported92()) define(String.prototype, "includes", stringIncludes);
         if (!isSupported93()) define(String.prototype, "isWellFormed", stringIsWellFormed);
-        if (!isSupported94()) define(String.prototype, "match", stringMatch);
+        if (!isSupported94()) {
+            define(String.prototype, "match", stringMatch);
+            installRegExpMatch();
+        }
         if (!isSupported95()) install22();
         if (!isSupported96()) define(String.prototype, "padEnd", stringPadEnd);
         if (!isSupported97()) define(String.prototype, "padStart", stringPadStart);
         if (!isSupported98()) define(String, "raw", stringRaw);
         if (!isSupported99()) define(String.prototype, "repeat", stringRepeat);
-        if (!isSupported100()) define(String.prototype, "replace", stringReplace);
+        if (!isSupported100()) {
+            define(String.prototype, "replace", stringReplace);
+            installRegExpReplace();
+        }
         if (!isSupported101()) define(String.prototype, "replaceAll", stringReplaceAll);
-        if (!isSupported102()) define(String.prototype, "search", stringSearch);
-        if (!isSupported103()) define(String.prototype, "split", stringSplit);
+        if (!isSupported102()) {
+            define(String.prototype, "search", stringSearch);
+            installRegExpSearch();
+        }
+        if (!isSupported103()) {
+            define(String.prototype, "split", stringSplit);
+            installRegExpSplit();
+        }
         if (!isSupported104()) define(String.prototype, "startsWith", stringStartsWith);
         if (!isSupported105()) define(String.prototype, "toWellFormed", stringToWellFormed);
         if (!isSupported106()) define(String.prototype, "trim", stringTrim);
@@ -17198,25 +18119,25 @@ var spackle = function() {
         if (!isSupported149()) define(Number.prototype, "toPrecision", numberToPrecision);
         if (!isSupported150()) define(window, "parseFloat", numberParseFloat2);
         if (!isSupported151()) define(window, "parseInt", numberParseInt2);
-        if (typeof Promise !== "undefined" && !isSupported153()) define(Promise, "allSettled", promiseAllSettled);
-        if (typeof Promise !== "undefined" && !isSupported154()) define(Promise, "any", promiseAny);
-        if (typeof Promise !== "undefined" && !isSupported155()) define(Promise.prototype, "finally", promiseFinally);
-        if (typeof Promise !== "undefined" && !isSupported156()) define(Promise, "try", promiseTry);
-        if (typeof Promise !== "undefined" && !isSupported157()) define(Promise, "withResolvers", promiseWithResolvers);
+        if (typeof Promise !== "undefined" && !isSupported152()) define(Promise, "allSettled", promiseAllSettled);
+        if (typeof Promise !== "undefined" && !isSupported153()) define(Promise, "any", promiseAny);
+        if (typeof Promise !== "undefined" && !isSupported154()) define(Promise.prototype, "finally", promiseFinally);
+        if (typeof Promise !== "undefined" && !isSupported155()) define(Promise, "try", promiseTry);
+        if (typeof Promise !== "undefined" && !isSupported156()) define(Promise, "withResolvers", promiseWithResolvers);
         install37();
         install38();
         installIterator();
-        if (!isSupported158()) installDomException();
-        if (!isSupported159()) installSetImmediate();
-        if (typeof window !== "undefined" && !isSupported160()) define(window, "atob", atobPolyfill);
-        if (!isSupported162()) install32();
+        if (!isSupported157()) installDomException();
+        if (!isSupported158()) installSetImmediate();
+        if (typeof window !== "undefined" && !isSupported159()) define(window, "atob", atobPolyfill);
+        if (!isSupported161()) install32();
         if (!isSupported2()) define(window, "structuredClone", structuredClone);
-        if (!isSupported163()) install33();
-        if (!isSupported164()) install34();
-        if (!isSupported165()) install35();
-        if (typeof URL !== "undefined" && !isSupported166()) define(URL, "canParse", urlCanParse);
-        if (typeof URL !== "undefined" && !isSupported167()) define(URL, "parse", urlParse);
-        if (typeof URL !== "undefined" && URL.prototype && !isSupported168()) define(URL.prototype, "toJSON", urlToJSON);
+        if (!isSupported162()) install33();
+        if (!isSupported163()) install34();
+        if (!isSupported164()) install35();
+        if (typeof URL !== "undefined" && !isSupported165()) define(URL, "canParse", urlCanParse);
+        if (typeof URL !== "undefined" && !isSupported166()) define(URL, "parse", urlParse);
+        if (typeof URL !== "undefined" && URL.prototype && !isSupported167()) define(URL.prototype, "toJSON", urlToJSON);
         try {
             applySymbolKeyFilters();
         } catch (e) {}

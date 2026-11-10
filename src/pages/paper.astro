@@ -133,7 +133,7 @@ const data = [
     </table></div>
 
     <h2 id="compliance">6. Spec compliance</h2>
-    <p>Behavior was checked with 1,357 selected checks derived from test262 and web-platform-tests, run in the browser with each library installed over the engine's own natives. This is a targeted check set covering each polyfill Spackle supports. Some checks are skipped where a polyfill crashes the WebView (this happens with core-js). An important note: neither core-js nor Spackle passes everything. In the recorded runs, Spackle's pass rate was at or above core-js's on each engine. The per-engine table and the same 1,357 checks for your browser are on <a href="/verify">Verify</a>.</p>
+    <p>Behavior was checked with 1,357 selected checks derived from test262 and web-platform-tests, run in the browser with each library installed over the engine's own natives. This is a targeted check set covering each polyfill Spackle supports. Some checks are skipped where a polyfill crashes the WebView (this happens with core-js). Spackle aims to match core-js compliance. In the recorded runs (Chrome 38–39 and Safari 7.1–11 on real browsers, every Chromium 41–150 on a custom emulator), there is no check core-js passes that Spackle fails, and Spackle fails fewer checks on every engine. An important note: core-js is not fully spec compliant either. On Safari 7.1 it fails 125 checks and freezes the page on 4; Spackle fails 24. The per-engine table and the same 1,357 checks for your browser are on <a href="/verify">Verify</a>.</p>
 
     <h2 id="data">7. Data</h2>
     <p class="dim">The files the tables came from, as recorded. JSON traces open in Chrome DevTools, Performance, Load profile.</p>
